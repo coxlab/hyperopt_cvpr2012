@@ -1,0 +1,8 @@
+*pyc
+pythor3.egg-info
+*junk*
+*.coverage*
+distribute*egg
+distribute*tar.gz
+*.bak
+.DS_Store
