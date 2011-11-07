@@ -1,10 +1,12 @@
 import skdata.toy
-from pythor3.wildwest.asgd_demo.asgd_one_vs_all import ASGDMultiClassSVM
+from asgd.naive_asgd import NaiveBinaryASGD
 
-def test_basic():
+def test_naive_asgd():
     dataset = skdata.toy.Digits()
     X, y = dataset.classification_task()
 
-    svm = ASGDMultiClassSVM()
-    svm.fit(X, y, num_epochs=10, num_samples_per_batch=10)
+    binary_y = y < 5
+
+    svm = NaiveBinaryASGD()
+    svm.fit(X, y)
 
