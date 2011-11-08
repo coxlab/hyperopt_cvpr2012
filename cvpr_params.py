@@ -105,28 +105,40 @@ config = {'desc' : layers}
     
 ### with activations -- replace activ in each case with:
 ###TODO:  get this in the right format for pythor
-activ_uniform = {'min_out' : choice([null, {'dist' : 'uniform',
-                                            'mean' : uniform(-.2,.2),
-                                            'delta' : uniform(0, .2)}]),
-                 'max_out' : choice([null, {'dist' : 'uniform',
-                                            'mean' : uniform(1-.2,1+.2),
-                                            'delta' : uniform(0, .2)}])                                          
+activ_uniform = {'min_out' : choice([null, {'generate' : ('random:uniform',
+                                                          {'rseed':42,
+                                                           'mean':uniform(-.2,.2),
+                                                           'delta':uniform(0,.2)}),
+                                                           
+                                            }]),
+                 'max_out' : choice([null, {'generate' : ('random:uniform',
+                                                          {'rseed':42,
+                                                           'mean':uniform(.8,1.2),
+                                                           'delta':uniform(0,.2)}),
+                                                           
+                                            }]),                                       
                 }
               
-activ_gaussian = {'min_out' : choice([null, {'dist' : 'gaussian',
-                                                      'mean' : uniform(-.2,.2),
-                                                      'stdev' : uniform(0, .2)}]),
-                  'max_out' : choice([null, {'dist' : 'gaussian',
-                                                      'mean' : uniform(1-.2,1+.2),
-                                                      'stdev' : uniform(0, .2)}])                                          
-                 }
+activ_gaussian = {'min_out' : choice([null, {'generate' : ('random:normal',
+                                                          {'rseed':42,
+                                                           'mean':uniform(-.2,.2),
+                                                           'stdev':uniform(0,.2)}),
+                                                           
+                                            }]),
+                 'max_out' : choice([null, {'generate' : ('random:normal',
+                                                          {'rseed':42,
+                                                           'mean':uniform(.8,1.2),
+                                                           'stdev':uniform(0,.2)}),
+                                                           
+                                            }]),                                       
+                }
                  
        
                  
 def activ_multiple_gen(dist,minargs,minkwargs,maxargs,maxkwargs,num):
     activ = {}
-    activ['min_out'] = choice([null] + [{'values': [dist(*minargs,**minkwargs) for ind in range(k)]} for k in range(num)])
-    activ['max_out'] = choice([null] + [{'values': [dist(*maxargs,**maxkwargs) for ind in range(k)]} for k in range(num)]) 
+    activ['min_out'] = choice([null] + [{'generate': ('fixedvalues',{'values':[dist(*minargs,**minkwargs) for ind in range(k)]})} for k in range(1,num+1)])
+    activ['max_out'] = choice([null] + [{'generate': ('fixedvalues',{'values':[dist(*maxargs,**maxkwargs) for ind in range(k)]})} for k in range(1,num+1)]) 
     return activ
 
 activ_multiple_uniform = activ_multiple_gen(uniform,(-.2,.2),{},(1-.2,1+.2),{},5)
@@ -159,4 +171,5 @@ layers_h = [[('lnorm', lnorm)],
            ]  
            
 
+config_h = {'desc' : layers_h}
         
