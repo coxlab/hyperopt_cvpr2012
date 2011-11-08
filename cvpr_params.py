@@ -1,4 +1,4 @@
-
+import copy
 
 ##Plain vanilla params  -- from FG11 paper
 
