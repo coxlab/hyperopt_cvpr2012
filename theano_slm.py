@@ -222,7 +222,7 @@ import asgd
 import numpy as np
 import tempfile
 import os.path as path
-from early_stopping import fit_w_early_stopping, early_stopping
+from early_stopping import fit_w_early_stopping, EarlyStopping
 
 class LFWBandit(object):
     def __init__(self):
@@ -251,6 +251,8 @@ class LFWBandit(object):
 
         feature_shp = (X.shape[0],) + slm.out_shape[1:]
         features_fp = get_features_fp(X, feature_shp, batchsize, slm, 'features.dat')
+        print 'RETURNING EARLY'
+        return
 
         n_features = get_num_features(feature_shp, comparison)
         print(n_features)
@@ -271,11 +273,13 @@ class LFWBandit(object):
                                                 features_fp, comparison, 'test_pairs.dat')
 
 
-            clas = fit_w_early_stopping(model=clas, es=early_stopping(warmup=20), 
-                               train_X = train_feature_pairs_fp,
-                               train_y = ctrain,
-                               validation_X = test_feature_pairs_fp,
-                               validation_y = ctest)
+            clas = fit_w_early_stopping(
+                    model=clas,
+                    es=EarlyStopping(warmup=20),
+                    train_X = train_feature_pairs_fp,
+                    train_y = ctrain,
+                    validation_X = test_feature_pairs_fp,
+                    validation_y = ctest)
 
             prediction = clas.predict(test_feature_pairs_fp)
 
@@ -296,35 +300,46 @@ class LFWBandit(object):
 
 
 def get_features_fp(X, feature_shp, batchsize, slm, filename):
+    """
+    X - 4-tensor of images
+    feature_shp - 4-tensor of output feature shape (len matches X)
+    batchsize - number of features to extract in parallel
+    slm - feature-extraction module (with .process_batch() fn)
+    filename - store features to memmap here
+    """
     #file = tempfile.NamedTemporaryFile(delete=False)
-    print('TMP-->',filename)
+    print('TMP-->', filename)
+    print('Creating memmap for features of shape %s' % str(feature_shp))
+    size = 4 * np.prod(feature_shp)
+    print('Total size: %i bytes (%fG)' % (size, size / float(1e9)))
+    return
     features_fp = np.memmap(filename,
-                            dtype='float32',
-                            mode='w+', 
-                            shape=feature_shp)
-                            
+            dtype='float32',
+            mode='w+',
+            shape=feature_shp)
+
     i = 0
-    t0 = time.time()                                
+    t0 = time.time()
     while True:
         xi = np.asarray(X[i:i+batchsize])
         if len(xi) == batchsize:
             feature_batch = slm.process_batch(xi.transpose(0, 3, 1, 2))
-            features_fp[i:i+batchsize] = feature_batch[:]                
+            features_fp[i:i+batchsize] = feature_batch[:]
         else:
             break
-            
+
         i += batchsize
         print 'i', i, xi.shape
         t_per_image = (time.time() - t0) / (i * batchsize)
         t_tot = t_per_image * X.shape[0]
         print 'feature_extraction_estimate', t_tot / 60.0, 'mins'
         assert i < X.shape[0]
-    
+
     del features_fp
     return np.memmap(filename,
-                            dtype='float32',
-                            mode='r', 
-                            shape=feature_shp)    
+            dtype='float32',
+            mode='r',
+            shape=feature_shp)
 
 
 def get_pair_fp(A, B, c, X, n_features, name, feature_fp, comparison, filename):
