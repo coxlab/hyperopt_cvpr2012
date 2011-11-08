@@ -8,7 +8,6 @@ def run_lfw(seed):
             repr(cvpr_params.config).replace("'",'"'))
     config = template.sample(seed)
     bandit = LFWBandit()
-    config['workdir'] = '/mnt/bottom/tmp'
     config['cvpr_params_seed'] = seed
     config['skip_features'] = True
     bandit.evaluate(config, None)

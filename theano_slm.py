@@ -275,7 +275,6 @@ class LFWBandit(object):
     def evaluate(cls, config, ctrl):
         import skdata.lfw
 
-        os.chdir(config['workdir'])
         comparison = get_comparison(config)
 
         # XXX: use Aligned right?
@@ -297,9 +296,8 @@ class LFWBandit(object):
                     mode='r',
                     shape=feature_shp)
         else:
-
             features_fp = get_features_fp(X, feature_shp, batchsize, slm,
-                    os.path.join(config['workdir'], 'features.dat'))
+                                          '/tmp/features.dat')
             print 'RETURNING EARLY'
             return
 
