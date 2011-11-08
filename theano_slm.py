@@ -292,7 +292,7 @@ class LFWBandit(object):
         os.remove(features_fp.filename)
 
         return dict(loss=performance, status='ok')
-        
+
 
 def get_features_fp(X, feature_shp, batchsize, slm, filename):
     #file = tempfile.NamedTemporaryFile(delete=False)
@@ -324,8 +324,7 @@ def get_features_fp(X, feature_shp, batchsize, slm, filename):
                             dtype='float32',
                             mode='r', 
                             shape=feature_shp)    
-    
-        
+            
 def get_pair_fp(A, B, c, X, n_features, name, feature_fp, comparison, filename):
     Ar = np.array([os.path.split(ar)[-1] for ar in A])
     Br = np.array([os.path.split(br)[-1] for br in B])
@@ -349,18 +348,18 @@ def get_pair_fp(A, B, c, X, n_features, name, feature_fp, comparison, filename):
                                 mode='r', 
                                 shape=pair_shp)       
 
-        
+
 def get_comparison(config):
     comparison = config.get('comparison', 'concatenate')
     assert comparison in ['concatenate']
     return comparison
 
+
 def get_num_features(x, comparison):
     if comparison == 'concatenate':
         return 2*x[1]*x[2]*x[3]
-            
+
+
 def compare(x, y, comparison):
     if comparison == 'concatenate':
         return np.concatenate([x.flatten(),y.flatten()])
-        
-
