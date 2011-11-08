@@ -224,6 +224,30 @@ import tempfile
 import os.path as path
 from early_stopping import fit_w_early_stopping, EarlyStopping
 
+import skdata.larray
+import skdata.utils
+
+def get_relevant_images(dataset, dtype='uint8'):
+
+    Xr, yr = dataset.raw_classification_task()
+    Xr = np.array(Xr)
+    
+    Atr, Btr, c = dataset.raw_verification_task_resplit(split='train_0')
+    Ate, Bte, c = dataset.raw_verification_task_resplit(split='test_0')
+    all_images = np.unique(np.concatenate([Atr,Btr,Ate,Bte]))
+        
+    inds = np.searchsorted(Xr,all_images)
+    Xr = Xr[inds]   
+    yr = yr[inds]
+        
+    X = skdata.larray.lmap(
+                skdata.utils.image.ImgLoader(shape=(250, 250, 3), dtype=dtype),
+                Xr)
+                
+    Xr = np.array([os.path.split(x)[-1] for x in Xr])
+    
+    return X, yr, Xr
+
 class LFWBandit(object):
     def __init__(self):
         pass
@@ -237,9 +261,7 @@ class LFWBandit(object):
 
         dataset = skdata.lfw.Funneled()
 
-        X, y = dataset.img_classification_task()
-        Xr, yr = dataset.raw_classification_task()
-        Xr = np.array([os.path.split(xr)[-1] for xr in Xr])
+        X, y, Xr = get_relevant_images(dataset)
 
         batchsize = 16
 
