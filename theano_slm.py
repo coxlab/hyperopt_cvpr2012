@@ -26,7 +26,7 @@ def get_into_shape(x):
 	if hasattr(x,'__iter__'):
 		x = np.array(x)
 		assert x.ndim == 1
-		x = x.reshape((1,len(x))
+		x = x.reshape((1,len(x)))
 	return x
 
 
@@ -169,7 +169,7 @@ class TheanoSLM(object):
         return rval, rshp
 
     def init_lnorm_h(self, threshold=lnorm_.DEFAULT_THRESHOLD,
-                     stretch=lnorm_DEFAULT_STRETCH,
+                     stretch=lnorm_.DEFAULT_STRETCH,
                      **kwargs):
         kwargs['threshold'] = get_into_shape(threshold)
         kwargs['stretch'] = get_into_shape(stretch)
