@@ -3,12 +3,13 @@ import hyperopt.gdist
 from theano_slm import TheanoSLM, LFWBandit
 import cvpr_params
 
-def run_lfw(seed, use_theano=True):
+def run_lfw(seed, use_theano=True, skip_features=False):
     template = hyperopt.gdist.gDist(
             repr(cvpr_params.config).replace("'",'"'))
     config = template.sample(seed)
     bandit = LFWBandit()
     config['cvpr_params_seed'] = seed
+    config['skip_features'] = skip_features
     bandit.evaluate(config, None, use_theano=use_theano)
 
 def test_seed_A():

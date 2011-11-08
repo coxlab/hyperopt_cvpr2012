@@ -5,7 +5,7 @@ import copy
 import numpy as np
 
 class EarlyStopping(object):
-    def __init__(self, warmup, improvement_thresh=0.5, patience=2.0):
+    def __init__(self, warmup, improvement_thresh=0.2, patience=2.0):
         self.warmup = warmup
         self.improvement_thresh = improvement_thresh
         self.patience = patience
@@ -17,9 +17,10 @@ class EarlyStopping(object):
         self.cur_y_std = None
 
     def __str__(self):
-        print 'EarlyStopping cur_time=%i cur_y=%f best_time=%i best_y=%f' % (
+        return ('EarlyStopping cur_time=%i cur_y=%f'
+                ' best_time=%i best_y=%f +- %f') % (
                 self.cur_time, self.cur_y,
-                self.best_time, self.best_y
+                self.best_time, self.best_y, self.best_y_std
                 )
 
     def step(self, y, y_std):
@@ -30,7 +31,7 @@ class EarlyStopping(object):
         self.cur_y = y
         self.cur_y_std = y_std
 
-        if y < self.best_y - self.improvement_thresh * self.best_y_std:
+        if y < (self.best_y - self.improvement_thresh * self.best_y_std):
             self.best_time = self.cur_time
             self.best_y = y
             self.best_y_std = y_std
@@ -51,6 +52,25 @@ def fit_w_early_stopping(model, es,
     best_model = None
 
     while not es.done():
+        vpos = 0
+        errs = []
+        while vpos < len(validation_X):
+            xi = validation_X[vpos:vpos + batchsize]
+            yi = validation_y[vpos:vpos + batchsize]
+            pi = model.predict(xi)
+            errs.append((yi != pi).astype('float64'))
+            vpos += batchsize
+
+        vscore = np.mean(errs)
+        # -- std dev appropriate for classification
+        vscore_std = np.sqrt(vscore * (1.0 - vscore) / len(validation_X))
+        es.step(vscore, vscore_std)
+        print es, 'margin_avg', model.margin_avg
+        print (model.asgd_weights ** 2).sum()
+        if es.cur_time > es.warmup and es.cur_time == es.best_time:
+            best_model = copy.deepcopy(model)
+
+        # -- training loop
         for i in xrange(validation_interval):
             xi = train_X[tpos:tpos + batchsize]
             if len(xi) == 0:
@@ -60,20 +80,6 @@ def fit_w_early_stopping(model, es,
             model.partial_fit(xi, yi)
             tpos += batchsize
 
-        vpos = 0
-        errs = []
-        while vpos < len(validation_X):
-            xi = validation_X[vpos:vpos + batchsize]
-            yi = validation_y[vpos:vpos + batchsize]
-            pi = model.predict(xi)
-            errs.append(yi != pi)
-
-        vscore = np.mean(errs)
-        vscore_std = vscore * (1.0 - vscore) / np.sqrt(len(validation_X))
-        es.step(vscore, vscore_std)
-        print es
-        if es.cur_time > es.warmup and es.cur_time == es.best_time:
-            best_model = copy.deepcopy(model)
 
     return model if best_model is None else best_model
 
