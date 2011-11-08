@@ -4,7 +4,7 @@ An early-stopping heuristic
 import copy
 import numpy as np
 
-class early_stopping(object):
+class EarlyStopping(object):
     def __init__(self, warmup, improvement_thresh=0.5, patience=2.0):
         self.warmup = warmup
         self.improvement_thresh = improvement_thresh
@@ -15,6 +15,12 @@ class early_stopping(object):
         self.best_y_std = 0
         self.cur_y = None
         self.cur_y_std = None
+
+    def __str__(self):
+        print 'EarlyStopping cur_time=%i cur_y=%f best_time=%i best_y=%f' % (
+                self.cur_time, self.cur_y,
+                self.best_time, self.best_y
+                )
 
     def step(self, y, y_std):
         if y_std < 0:
@@ -65,6 +71,7 @@ def fit_w_early_stopping(model, es,
         vscore = np.mean(errs)
         vscore_std = vscore * (1.0 - vscore) / np.sqrt(len(validation_X))
         es.step(vscore, vscore_std)
+        print es
         if es.cur_time > es.warmup and es.cur_time == es.best_time:
             best_model = copy.deepcopy(model)
 
