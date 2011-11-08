@@ -1,4 +1,5 @@
 import time
+import os
 
 import numpy as np
 
@@ -55,6 +56,8 @@ class TheanoSLM(object):
                             op_params.get('kwargs', {}),
                             op_params.get('initialize', {})))
                 print 'added layer', op_name, 'shape', x_shp
+        
+        self.out_shape = x_shp
 
         self._fn = theano.function([self.s_input], x,
                 allow_input_downcast=True)
@@ -176,6 +179,11 @@ class TheanoSLM(object):
             raise TypeError('rank error', arr_in)
 
 
+import asgd
+import numpy as np
+from tempfile import mkdtemp
+import os.path as path
+
 class LFWBandit(object):
     def __init__(self):
         pass
@@ -183,10 +191,14 @@ class LFWBandit(object):
     @classmethod
     def evaluate(cls, config, ctrl):
         import skdata.lfw
+        
+        comparison = get_comparison(config)
 
         dataset = skdata.lfw.Funneled()
 
         X, y = dataset.img_classification_task()
+        Xr, yr = dataset.raw_classification_task()
+        Xr = np.array([os.path.split(xr)[-1] for xr in Xr])
 
         print X.shape
 
@@ -198,22 +210,100 @@ class LFWBandit(object):
 
         i = 0
         t0 = time.time()
-        while True:
+        
+        outshape = slm.out_shape
+        
+        feature_shp = (X.shape[0],) + slm.out_shape[1:]
+        
+        filename = path.join(mkdtemp(), 'features.dat')
+        features_fp = np.memmap(filename,
+                                dtype='float32',
+                                mode='w+', 
+                                shape=feature_shp)
+                                
+        
+        
+        while i < 10:
             xi = np.asarray(X[i:i+batchsize])
-            yi = np.asarray(y[i:i+batchsize])
             if len(xi) == batchsize:
-                slm.process_batch(xi.transpose(0, 3, 1, 2))
+                feature_batch = slm.process_batch(xi.transpose(0, 3, 1, 2))
+                features_fp[i:i+batchsize] = feature_batch[:]                
             else:
                 break
+                
             i += batchsize
             print 'i', i, xi.shape
             t_per_image = (time.time() - t0) / (i * batchsize)
             t_tot = t_per_image * X.shape[0]
             print 'feature_extraction_estimate', t_tot / 60.0, 'mins'
             assert i < X.shape[0]
+        
+        del features_fp
+        features_fp = np.memmap(filename,
+                                dtype='float32',
+                                mode='r', 
+                                shape=feature_shp)    
+        
+        n_features = get_num_features(feature_shape, comparison)        
+        clas = asgd.naive_asgd.NaiveBinaryASGD(n_features)
+        
+        Atrain,Btrain,ctrain = dataset.raw_verification_task_resplit(split='train_0')
+        Ar = np.array([os.path.split(ar)[-1] for ar in Atrain])
+        Br = np.array([os.path.split(br)[-1] for br in Btrain])
+        Aind = np.searchsorted(Xr, Ar)
+        Bind = np.searchsorted(Xr, Br)        
+        train_pair_shp = (len(ctrain), n_features)        
+        train_filename = path.join(mkdtemp(), 'train_feature_pairs.dat')
+        train_feature_pairs_fp = np.memmap(train_filename,
+                                    dtype='float32',
+                                    mode='w+', 
+                                    shape=train_pair_shp)
+        for (ind,(ai, bi)) in enumerate(zip(Aind,Bind)):
+            train_feature_pairs_fp[ind] = compare(feature_fp[ai],
+                                                  feature_fp[bi],
+                                                  comparison)
+        
+        del train_feature_pairs_fp
+        train_feature_pairs_fp = np.memmap(train_filename,
+                                    dtype='float32',
+                                    mode='r', 
+                                    shape=train_pair_shp)       
+                                    
+        Atest,Btest,ctest = dataset.raw_verification_task_resplit(split='test_0')
+        Ar = np.array([os.path.split(ar)[-1] for ar in Atest])
+        Br = np.array([os.path.split(br)[-1] for br in Btest])
+        Aind = np.searchsorted(Xr, Ar)
+        Bind = np.searchsorted(Xr, Br)         
+        test_pair_shp = (len(ctest), n_features)        
+        test_filename = path.join(mkdtemp(), 'test_feature_pairs.dat')
+        test_feature_pairs_fp = np.memmap(test_filename,
+                                    dtype='float32',
+                                    mode='w+', 
+                                    shape=test_pair_shp)
+        for (ind,(ai, bi)) in enumerate(zip(Aind,Bind)):
+            test_feature_pairs_fp[ind] = compare(feature_fp[ai],
+                                                 feature_fp[bi],
+                                                 comparison)
+        
+        del test_feature_pairs_fp
+        test_feature_pairs_fp = np.memmap(test_filename,
+                                    dtype='float32',
+                                    mode='r', 
+                                    shape=test_pair_shp)       
+                                    
+	
+	
+def get_comparison(config):
+	comparison = config.get('comparison', 'concatenate')
+	assert comparison in ['concatenate']
+	return comparison
 
-
-
-
-
+def get_num_features(x, comparison):
+	if comparison == 'concatenate':
+		return 2*x[1]*x[2]*x[3]
+			
+def compare(x, y, comparison):
+	if comparison == 'concatenate':
+		return np.concatenate(x,y)
+        
 
