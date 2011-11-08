@@ -1,3 +1,4 @@
+import sys
 import time
 import os
 
@@ -70,12 +71,7 @@ class TheanoSLM(object):
             raise InvalidDescription()
 
         self.out_shape = x_shp
-
-        self._fn = theano.function([self.s_input], x,
-                allow_input_downcast=True)
-
-        if 0:
-            theano.printing.debugprint(self._fn)
+        self.s_output = x
 
     def init_fbcorr(self, x, x_shp, n_filters,
             filter_shape,
@@ -219,7 +215,13 @@ class TheanoSLM(object):
         return r, r_shp
 
     def process_batch(self, arr_in):
-        return self._fn(arr_in)
+        try:
+            fn = self._fn
+        except AttributeError:
+            fn = self._fn = theano.function([self.s_input], self.s_output,
+                allow_input_downcast=True)
+        return fn(arr_in)
+
 
     def process(self, arr_in):
         if arr_in.ndim == 2:
@@ -276,6 +278,7 @@ class LFWBandit(object):
         os.chdir(config['workdir'])
         comparison = get_comparison(config)
 
+        # XXX: use Aligned right?
         dataset = skdata.lfw.Funneled()
 
         X, y, Xr = get_relevant_images(dataset)
@@ -285,19 +288,23 @@ class LFWBandit(object):
         slm = TheanoSLM(
                 in_shape=(batchsize, X.shape[3], X.shape[1], X.shape[2]),
                 description=config['desc'])
-
-        outshape = slm.out_shape
-
         feature_shp = (X.shape[0],) + slm.out_shape[1:]
-        features_fp = get_features_fp(X, feature_shp, batchsize, slm,
-                os.path.join(config['workdir'], 'features.dat'))
-        print 'RETURNING EARLY'
-        return
+
+        if config.get('skip_features', False):
+            features_fp = np.memmap(
+                    os.path.join(config['workdir'], 'features.dat'),
+                    dtype='float32',
+                    mode='r',
+                    shape=feature_shp)
+        else:
+
+            features_fp = get_features_fp(X, feature_shp, batchsize, slm,
+                    os.path.join(config['workdir'], 'features.dat'))
+            print 'RETURNING EARLY'
+            return
 
         n_features = get_num_features(feature_shp, comparison)
         print(n_features)
-
-        clas = asgd.naive_asgd.NaiveBinaryASGD(n_features)
 
         num_splits = 1
         performances = []
@@ -312,29 +319,46 @@ class LFWBandit(object):
                                                 n_features, 'test_feature_pairs.dat',
                                                 features_fp, comparison, 'test_pairs.dat')
 
+            print 'training classifier'
+            train_mean = train_feature_pairs_fp.mean(axis=0)
+            train_std = train_feature_pairs_fp.std(axis=0)
+
+            assert set(ctrain) == set([0, 1])
+            ctrain = ctrain * 2 - 1
+            ctest = ctest * 2 - 1
+
+            def normalize(XX):
+                return (XX - train_mean) / np.maximum(train_std, 1e-6)
 
             clas = fit_w_early_stopping(
-                    model=clas,
-                    es=EarlyStopping(warmup=20),
-                    train_X = train_feature_pairs_fp,
+                    model=asgd.naive_asgd.NaiveBinaryASGD(
+                        n_features=n_features,
+                        l2_regularization=0,
+                        sgd_step_size0=1e-3),
+                    es=EarlyStopping(warmup=10), # unit: validation intervals
+                    train_X = normalize(train_feature_pairs_fp),
                     train_y = ctrain,
-                    validation_X = test_feature_pairs_fp,
-                    validation_y = ctest)
+                    validation_X = normalize(test_feature_pairs_fp),
+                    validation_y = ctest,
+                    batchsize=10,                # unit: examples
+                    validation_interval=50)      # unit: batches
 
             prediction = clas.predict(test_feature_pairs_fp)
 
             performance = (prediction != ctest).astype(np.float).mean()
-            performances.append(performances)
+            performances.append(performance)
 
-            test_feature_pairs_fp.close()
-            os.remove(test_features_pairs_fp.filename)
-            train_feature_pairs_fp.close()
-            os.remove(train_features_pairs_fp.filename)
+            if 0:
+                test_feature_pairs_fp.close()
+                os.remove(test_features_pairs_fp.filename)
+                train_feature_pairs_fp.close()
+                os.remove(train_features_pairs_fp.filename)
 
         performance = np.array(performances).mean()
 
-        features_fp.close()
-        os.remove(features_fp.filename)
+        if 0:
+            features_fp.close()
+            os.remove(features_fp.filename)
 
         return dict(loss=performance, status='ok')
 
@@ -396,24 +420,30 @@ def get_pair_fp(A, B, c, X, n_features, name, feature_fp, comparison, filename):
     Ar = np.array([os.path.split(ar)[-1] for ar in A])
     Br = np.array([os.path.split(br)[-1] for br in B])
     Aind = np.searchsorted(X, Ar)
-    Bind = np.searchsorted(X, Br)        
-    pair_shp = (len(c), n_features)        
-    #file = tempfile.NamedTemporaryFile(delete=False)
-    print('tmpfile',filename)
+    Bind = np.searchsorted(X, Br)
+    assert len(Aind) == len(Bind)
+    pair_shp = (len(c), n_features)
+    print('get_pair_fp memmap %s for features of shape %s' % (
+        filename, str(pair_shp)))
+    size = 4 * np.prod(pair_shp)
+    print('Total size: %i bytes (%fG)' % (size, size / float(1e9)))
     feature_pairs_fp = np.memmap(filename,
                                 dtype='float32',
-                                mode='w+', 
+                                mode='w+',
                                 shape=pair_shp)
-    for (ind,(ai, bi)) in enumerate(zip(Aind,Bind)):
+    for (ind,(ai, bi)) in enumerate(zip(Aind, Bind)):
         feature_pairs_fp[ind] = compare(feature_fp[ai],
                                         feature_fp[bi],
                                         comparison)
-        print(ind)
+        if ind % 100 == 0:
+            print('get_pair_fp  %i / %i' % (ind, len(Aind)))
+    print ('flushing memmap')
+    sys.stdout.flush()
     del feature_pairs_fp
     return np.memmap(filename,
-                                dtype='float32',
-                                mode='r', 
-                                shape=pair_shp)       
+            dtype='float32',
+            mode='r',
+            shape=pair_shp)
 
 
 def get_comparison(config):
@@ -422,9 +452,13 @@ def get_comparison(config):
     return comparison
 
 
-def get_num_features(x, comparison):
+def get_num_features(shp, comparison):
+    """
+    Given image features of size shp, how long many comparison features will
+    there be?
+    """
     if comparison == 'concatenate':
-        return 2*x[1]*x[2]*x[3]
+        return 2 * shp[1] * shp[2] * shp[3]
 
 
 def compare(x, y, comparison):
