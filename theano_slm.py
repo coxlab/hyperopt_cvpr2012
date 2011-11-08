@@ -1,6 +1,7 @@
 import sys
 import time
 import os
+import copy
 
 import numpy as np
 
@@ -25,12 +26,20 @@ def dict_add(a, b):
     return rval
 
 def get_into_shape(x):
-	if hasattr(x,'__iter__'):
-		x = np.array(x)
-		assert x.ndim == 1
-		x = x.reshape((1,len(x)))
-	return x
+    if hasattr(x,'__iter__'):
+        x = np.array(x)
+        assert x.ndim == 1
+        x = x.reshape((1,len(x)))
+    return x
 
+def get_mock_description(description):
+    description = copy.deepcopy(description)
+    for layer_idx, layer_desc in enumerate(description):
+        for (op_idx,(op_name, op_params)) in enumerate(layer_desc):
+            if op_name.endswith('_h'):
+                newname = op_name[:-2]
+                layer_desc[op_idx] = (newname,op_params)
+    return description
 
 class TheanoSLM(object):
     """
@@ -59,10 +68,11 @@ class TheanoSLM(object):
         print 'TheanoSLM.theano_in_shape', self.theano_in_shape
 
         # This guy is used to generate filterbanks
+        mock_description = get_mock_description(description)
         try:
             self.SLMP = SequentialLayeredModelPassthrough(
                     self.pythor_in_shape,
-                    description,
+                    mock_description,
                     dtype=dtype)
         except ValueError, e:
             if 'negative dimensions' in str(e):
@@ -81,10 +91,10 @@ class TheanoSLM(object):
         for layer_idx, layer_desc in enumerate(description):
             for op_name, op_params in layer_desc:
                 init_fn = getattr(self, 'init_' + op_name)
-                x, x_shp = init_fn(x, x_shp,
-                        **dict_add(
+                _D = dict_add(
                             op_params.get('kwargs', {}),
-                            op_params.get('initialize', {})))
+                            op_params.get('initialize', {}))
+                x, x_shp = init_fn(x, x_shp, **_D)
                 print 'added layer', op_name, 'shape', x_shp
 
         if 0 == np.prod(x_shp):
@@ -94,12 +104,12 @@ class TheanoSLM(object):
         self.pythor_out_shape = x_shp[2], x_shp[3], x_shp[1]
         self.s_output = x
 
-    def init_fbcorr_h(self, min_out=fbcorr_.DEFAULT_MIN_OUT,
-                      max_out=fbcorr_.DEFAULT_MAX_OUT,
-                      **kwargs):      
+    def init_fbcorr_h(self, x, x_shp, **kwargs):      
+        min_out = kwargs.get('min_out', fbcorr_.DEFAULT_MIN_OUT)
+        max_out = kwargs.get('max_out', fbcorr_.DEFAULT_MAX_OUT)
         kwargs['max_out'] = get_into_shape(max_out)
         kwargs['min_out'] = get_into_shape(min_out)       
-        return init_fbcorr(self, **kwargs)
+        return self.init_fbcorr(x, x_shp, **kwargs)
             
     def init_fbcorr(self, x, x_shp, n_filters,
             filter_shape,
@@ -178,12 +188,12 @@ class TheanoSLM(object):
                 raise
         return rval, rshp
 
-    def init_lnorm_h(self, threshold=lnorm_.DEFAULT_THRESHOLD,
-                     stretch=lnorm_.DEFAULT_STRETCH,
-                     **kwargs):
+    def init_lnorm_h(self, x, x_shp, **kwargs):
+        threshold = kwargs.get('threshold', lnorm_.DEFAULT_THRESHOLD)
+        stretch = kwargs.get('stretch', lnorm_.DEFAULT_STRETCH)
         kwargs['threshold'] = get_into_shape(threshold)
         kwargs['stretch'] = get_into_shape(stretch)
-        return init_lnorm(self, **kwargs)
+        return self.init_lnorm(x, x_shp, **kwargs)
 
     def init_lnorm(self, x, x_shp,
             inker_shape=lnorm_.DEFAULT_INKER_SHAPE,    # (3, 3)
@@ -221,7 +231,7 @@ class TheanoSLM(object):
             else:
                 raise NotImplementedError('div_method', div_method)
         else:
-            raise NotImplementedError('outker_shape != inker_shape')
+            raise NotImplementedError('outker_shape != inker_shape',outker_shape, inker_shape)
         if stretch != 1:
             arr_num = arr_num * stretch
             arr_div = arr_div * stretch
@@ -231,8 +241,8 @@ class TheanoSLM(object):
         r_shp = x_shp[0], x_shp[1], ssqshp[2], ssqshp[3]
         return r, r_shp
 
-    def init_lpool_h(self, order=1,
-                     **kwargs):
+    def init_lpool_h(self, **kwargs):
+        order = kwargs.get('order', 1)
         kwargs['order'] = get_into_shape(order)
         return init_lpool(self, **kwargs)
 
@@ -303,6 +313,57 @@ def get_relevant_images(dataset, dtype='uint8'):
     Xr = np.array([os.path.split(x)[-1] for x in Xr])
     
     return X, yr, Xr
+    
+import itertools
+
+def flatten(x):
+    return list(itertools.chain(*x))
+    
+def interpret_activ(filter, activ):
+    n_filters = filter['initialize']['n_filters']
+    generator = activ['generate'][0].split(':')
+    vals = activ['generate'][1]
+    
+    if generator[0] == 'random':
+        dist = generator[1]
+        if dist == 'uniform':
+            mean = vals['mean']
+            delta = vals['delta']
+            seed = vals['rseed']
+            rng = np.random.RandomState(seed)
+            low = mean-(delta/2)
+            high = mean+(delta/2)
+            size = (n_filters,)
+            activ_vec = rng.uniform(low=low, high=high, size=size)
+        elif dist == 'normal':
+            mean = vals['mean']
+            stdev = vals['stdev']
+            seed = vals['rseed']
+            rng = np.random.RandomState(seed)
+            size = (n_filters,)
+            activ_vec = rng.normal(loc=mean, scale=stdev, size=size)
+        else:
+            raise ValueError, 'distribution not recognized'
+    elif generator[0] == 'fixedvalues':
+        values = vals['values']
+        num = n_filters / len(values)
+        delta = n_filters - len(values)*num
+        activ_vec = flatten([[v]*num for v in values] + [[values[-1]*delta]])
+    else:
+        raise ValueError, 'not recognized'
+    
+    return activ_vec
+        
+def interpret_model(desc):
+    for layer in desc:
+        for (opname,opparams) in layer:  
+            if opname == 'fbcorr_h':
+                kw = opparams['kwargs']
+                if hasattr(kw.get('min_out'),'keys'):
+                    kw['min_out'] = interpret_activ(opparams, kw['min_out'])
+                if hasattr(kw.get('max_out'),'keys'):
+                    kw['max_out'] = interpret_activ(opparams, kw['max_out'])                    
+        
 
 class LFWBandit(object):
     def __init__(self):
@@ -321,9 +382,11 @@ class LFWBandit(object):
 
         batchsize = 16
 
-        theano_slm = TheanoSLM(in_shape=(batchsize,) + X.shape[1:],
-                               description=config['desc'])
         desc = config['desc']
+        interpret_model(desc)
+        theano_slm = TheanoSLM(in_shape=(batchsize,) + X.shape[1:],
+                               description=desc)
+        
         if use_theano:
             slm = theano_slm
         else:
@@ -347,9 +410,6 @@ class LFWBandit(object):
         else:
             features_fp = get_features_fp(X, feature_shp, batchsize, slm,
                                           '/tmp/features.dat')
-            print 'RETURNING EARLY'
-            return
-
 
         n_features = get_num_features(feature_shp, comparison)
         print(n_features)
@@ -396,17 +456,15 @@ class LFWBandit(object):
             performance = (prediction != ctest).astype(np.float).mean()
             performances.append(performance)
 
-            if 0:
-                test_feature_pairs_fp.close()
-                os.remove(test_features_pairs_fp.filename)
-                train_feature_pairs_fp.close()
-                os.remove(train_features_pairs_fp.filename)
+            test_feature_pairs_fp.close()
+            os.remove(test_features_pairs_fp.filename)
+            train_feature_pairs_fp.close()
+            os.remove(train_features_pairs_fp.filename)
 
         performance = np.array(performances).mean()
 
-        if 0:
-            features_fp.close()
-            os.remove(features_fp.filename)
+        features_fp.close()
+        os.remove(features_fp.filename)
 
         return dict(loss=performance, status='ok')
 
