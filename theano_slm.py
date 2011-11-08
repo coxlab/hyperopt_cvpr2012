@@ -360,11 +360,17 @@ def get_features_fp(X, feature_shp, batchsize, slm, filename):
     i = 0
     t0 = time.time()
     while True:
-        xi = np.asarray(X[i:i+batchsize])
-        if len(xi) == batchsize:
-            feature_batch = slm.process_batch(xi.transpose(0, 3, 1, 2))
-            features_fp[i:i+batchsize] = feature_batch[:]
+        if i + batchsize >= len(X):
+            assert i < len(X) 
+            xi = np.asarray(X[-batchsize:])
+            done = True
         else:
+            xi = np.asarray(X[i:i+batchsize])
+            done = False
+        feature_batch = slm.process_batch(xi.transpose(0, 3, 1, 2))
+        delta = max(0,i + batchsize - len(X))
+        features_fp[i:i+batchsize-delta] = feature_batch[delta:]
+        if done:
             break
 
         i += batchsize
@@ -372,8 +378,6 @@ def get_features_fp(X, feature_shp, batchsize, slm, filename):
         t_per_image = (time.time() - t0) / (i * batchsize)
         t_tot = t_per_image * X.shape[0]
         print 'feature_extraction_estimate', t_tot / 60.0, 'mins'
-        assert i < X.shape[0]
-
     del features_fp
     return np.memmap(filename,
             dtype='float32',
