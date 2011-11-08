@@ -13,6 +13,9 @@ from pythor3.model.slm.plugins.passthrough.passthrough import (
 from pythor3.operation import fbcorr_
 from pythor3.operation import lnorm_
 
+class InvalidDescription(Exception):
+    """Model description was invalid"""
+
 
 def dict_add(a, b):
     rval = dict(a)
@@ -45,10 +48,15 @@ class TheanoSLM(object):
         print 'TheanoSLM.in_shape', self.in_shape
 
         # This guy is used to generate filterbanks
-        self.SLMP = SequentialLayeredModelPassthrough(
-                self.in_shape[2:],
-                description,
-                dtype=dtype)
+        try:
+            self.SLMP = SequentialLayeredModelPassthrough(
+                    self.in_shape[2:],
+                    description,
+                    dtype=dtype)
+        except ValueError, e:
+            if 'negative dimensions' in str(e):
+                raise InvalidDescription()
+            raise
 
 
         self.s_input = tensor.ftensor4('arr_in')
@@ -64,7 +72,10 @@ class TheanoSLM(object):
                             op_params.get('kwargs', {}),
                             op_params.get('initialize', {})))
                 print 'added layer', op_name, 'shape', x_shp
-        
+
+        if 0 == np.prod(x_shp):
+            raise InvalidDescription()
+
         self.out_shape = x_shp
 
         self._fn = theano.function([self.s_input], x,
@@ -142,13 +153,19 @@ class TheanoSLM(object):
             kerns = np.ones((1, 1) + kershp, dtype=x.dtype)
             x_shp = (x_shp[0]*x_shp[1], 1, x_shp[2], x_shp[3])
             x = x.reshape(x_shp)
-        rval = tensor.reshape(
-                conv.conv2d(x,
-                    kerns,
-                    image_shape=x_shp,
-                    filter_shape=kerns.shape,
-                    border_mode='valid'),
-                rshp)
+        try:
+            rval = tensor.reshape(
+                    conv.conv2d(x,
+                        kerns,
+                        image_shape=x_shp,
+                        filter_shape=kerns.shape,
+                        border_mode='valid'),
+                    rshp)
+        except Exception, e:
+            if "Bad size for the output shape" in str(e):
+                raise InvalidDescription()
+            else:
+                raise
         return rval, rshp
 
     def init_lnorm_h(self, threshold=lnorm_.DEFAULT_THRESHOLD,
@@ -248,7 +265,7 @@ import asgd
 import numpy as np
 import tempfile
 import os.path as path
-from early_stopping import fit_w_early_stopping, early_stopping
+from early_stopping import fit_w_early_stopping, EarlyStopping
 
 import skdata.larray
 import skdata.utils
@@ -281,7 +298,7 @@ class LFWBandit(object):
     @classmethod
     def evaluate(cls, config, ctrl):
         import skdata.lfw
-        
+
         comparison = get_comparison(config)
 
         dataset = skdata.lfw.Funneled()
@@ -295,37 +312,42 @@ class LFWBandit(object):
                 description=config['desc'])
 
         outshape = slm.out_shape
-    
+
         feature_shp = (X.shape[0],) + slm.out_shape[1:]
-        features_fp = get_features_fp(X, feature_shp, batchsize, slm, 'features.dat')
-        
-        n_features = get_num_features(feature_shp, comparison)   
+        features_fp = get_features_fp(X, feature_shp, batchsize, slm,
+                                      '/tmp/features.dat')
+        print 'RETURNING EARLY'
+        return
+
+        n_features = get_num_features(feature_shp, comparison)
         print(n_features)
 
         clas = asgd.naive_asgd.NaiveBinaryASGD(n_features)
-        
+
         num_splits = 1
         performances = []
-        for split_id in range(num_splits):            
+        for split_id in range(num_splits):
             A, B, ctrain = dataset.raw_verification_task_resplit(split='train_' + str(split_id))
-            train_feature_pairs_fp = get_pair_fp(A, B, ctrain, Xr, 
-                                                n_features, 'train_feature_pairs.dat', 
+            train_feature_pairs_fp = get_pair_fp(A, B, ctrain, Xr,
+                                                n_features, 'train_feature_pairs.dat',
                                                 features_fp, comparison, 'train_pairs.dat')
-               
+
             A, B, ctest = dataset.raw_verification_task_resplit(split='test_' + str(split_id))
-            test_feature_pairs_fp = get_pair_fp(A, B, ctest, Xr, 
-                                                n_features, 'test_feature_pairs.dat', 
-                                                features_fp, comparison, 'test_pairs.dat')      
-                                        
-        
-            clas = fit_w_early_stopping(model=clas, es=early_stopping(warmup=20), 
-                               train_X = train_feature_pairs_fp,
-                               train_y = ctrain,
-                               validation_X = test_feature_pairs_fp,
-                               validation_y = ctest)
-            
+            test_feature_pairs_fp = get_pair_fp(A, B, ctest, Xr,
+                                                n_features, 'test_feature_pairs.dat',
+                                                features_fp, comparison, 'test_pairs.dat')
+
+
+            clas = fit_w_early_stopping(
+                    model=clas,
+                    es=EarlyStopping(warmup=20),
+                    train_X = train_feature_pairs_fp,
+                    train_y = ctrain,
+                    validation_X = test_feature_pairs_fp,
+                    validation_y = ctest)
+
             prediction = clas.predict(test_feature_pairs_fp)
-            
+
             performance = (prediction != ctest).astype(np.float).mean()
             performances.append(performances)
 
@@ -333,9 +355,9 @@ class LFWBandit(object):
             os.remove(test_features_pairs_fp.filename)
             train_feature_pairs_fp.close()
             os.remove(train_features_pairs_fp.filename)
-            
+
         performance = np.array(performances).mean()
-        
+
         features_fp.close()
         os.remove(features_fp.filename)
 
@@ -343,18 +365,29 @@ class LFWBandit(object):
 
 
 def get_features_fp(X, feature_shp, batchsize, slm, filename):
-    #file = tempfile.NamedTemporaryFile(delete=False)
-    print('TMP-->',filename)
+    """
+    X - 4-tensor of images
+    feature_shp - 4-tensor of output feature shape (len matches X)
+    batchsize - number of features to extract in parallel
+    slm - feature-extraction module (with .process_batch() fn)
+    filename - store features to memmap here
+
+    returns - read-only memmap of features
+    """
+    print('Creating memmap %s for features of shape %s' % (
+        filename, str(feature_shp)))
+    size = 4 * np.prod(feature_shp)
+    print('Total size: %i bytes (%fG)' % (size, size / float(1e9)))
     features_fp = np.memmap(filename,
-                            dtype='float32',
-                            mode='w+', 
-                            shape=feature_shp)
-                            
+            dtype='float32',
+            mode='w+',
+            shape=feature_shp)
+
     i = 0
-    t0 = time.time()                                
+    t0 = time.time()
     while True:
         if i + batchsize >= len(X):
-            assert i < len(X) 
+            assert i < len(X)
             xi = np.asarray(X[-batchsize:])
             done = True
         else:
@@ -367,17 +400,23 @@ def get_features_fp(X, feature_shp, batchsize, slm, filename):
             break
 
         i += batchsize
-        print 'i', i, xi.shape
-        t_per_image = (time.time() - t0) / (i * batchsize)
-        t_tot = t_per_image * X.shape[0]
-        print 'feature_extraction_estimate', t_tot / 60.0, 'mins'
-    
+        if (i // batchsize) % 10 == 0:
+            t_cur = time.time() - t0
+            t_per_image = (time.time() - t0) / i
+            t_tot = t_per_image * X.shape[0]
+            print 'get_features_fp: %i / %i  mins: %.2f / %.2f ' % (
+                    i , len(X),
+                    t_cur / 60.0, t_tot / 60.0)
+    # -- docs hers:
+    #    http://docs.scipy.org/doc/numpy/reference/generated/numpy.memmap.html
+    #    say that deletion is the way to flush changes !?
     del features_fp
     return np.memmap(filename,
-                            dtype='float32',
-                            mode='r', 
-                            shape=feature_shp)    
-            
+            dtype='float32',
+            mode='r',
+            shape=feature_shp)
+
+
 def get_pair_fp(A, B, c, X, n_features, name, feature_fp, comparison, filename):
     Ar = np.array([os.path.split(ar)[-1] for ar in A])
     Br = np.array([os.path.split(br)[-1] for br in B])

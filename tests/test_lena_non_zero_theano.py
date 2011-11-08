@@ -11,16 +11,12 @@ try:
 except:
     from scipy import lena
 
-from theano_slm import TheanoSLM, LFWBandit
+from theano_slm import TheanoSLM, LFWBandit, InvalidDescription
 import cvpr_params
 
 def test_foo():
     import pythor3
     print pythor3.plugin_library['model.slm']
-
-
-class InvalidDescription(Exception):
-    """Model description was invalid"""
 
 
 def match_single(desc, downsample=4):
@@ -29,10 +25,27 @@ def match_single(desc, downsample=4):
     try:
         pythor_model = SequentialLayeredModel(arr_in.shape, desc)
         pythor_out = pythor_model.process(arr_in)
+        if pythor_out.size == 0:
+            pythor_accepted = False
+        else:
+            pythor_accepted = True
     except ValueError:
+        pythor_accepted = False
+
+
+    try:
+        theano_model = TheanoSLM(arr_in.shape, desc)
+        theano_accepted = True
+    except InvalidDescription:
+        theano_accepted = False
+
+    if pythor_accepted and not theano_accepted:
+        print 'PYTHOR_OUT shape', pythor_out.shape
+    assert theano_accepted == pythor_accepted
+
+    if not theano_accepted:
         raise InvalidDescription()
 
-    theano_model = TheanoSLM(arr_in.shape, desc)
     theano_out = theano_model.process(arr_in)
 
     #fbcorr leaves in color channel of size 1
@@ -187,64 +200,4 @@ def test_cvpr_many():
             raise
         seed += 1
     print 'passing seeds', passing_seeds
-
-if 0:
-    def test_bandit_small():
-        bandit = LFWBandit()
-        bandit.evaluate(
-                config=dict(
-                    desc=L3Basic.desc
-                    ),
-                ctrl=None)
-
-
-    def test_bandit_large():
-        desc = [
-            # -- Layer 0
-            [('lnorm', {'kwargs': {'inker_shape': (3, 3)}})],
-
-            # -- Layer 1
-            [('fbcorr', {'kwargs': {'min_out': 0},
-                         'initialize': {
-                             'n_filters': 64,
-                             'filter_shape': (7, 7),
-                             # 'generate' value has the form ('generate_method', **method_kwargs)
-                             'generate': ('random:uniform', {'rseed': 42}),
-                         },
-                        }),
-             ('lpool', {'kwargs': {'ker_shape': (5, 5), 'stride': 2}}),
-             ('lnorm', {'kwargs': {'inker_shape': (3, 3)}}),
-            ],
-
-            # -- Layer 2
-            [('fbcorr', {'kwargs': {'min_out': 0},
-                         'initialize': {
-                             'n_filters': 64,
-                             'filter_shape': (5, 5),
-                             'generate': ('random:uniform', {'rseed': 42}),
-                         },
-                        }),
-             ('lpool', {'kwargs': {'ker_shape': (3, 3), 'stride': 2}}),
-             ('lnorm', {'kwargs': {'inker_shape': (3, 3)}}),
-            ],
-
-            # -- Layer 3
-            [('fbcorr', {'kwargs': {'min_out': 0},
-                         'initialize': {
-                             'n_filters': 128,
-                             'filter_shape': (9, 9),
-                             'generate': ('random:uniform', {'rseed': 42}),
-                         },
-                        }),
-             ('lpool', {'kwargs': {'ker_shape': (3, 3), 'stride': 2}}),
-             ('lnorm', {'kwargs': {'inker_shape': (3, 3)}}),
-            ],
-        ]
-        bandit = LFWBandit()
-        bandit.evaluate(
-                config=dict(
-                    desc=desc
-                    ),
-                ctrl=None)
-
 
