@@ -10,6 +10,7 @@ from theano.tensor.signal import downsample
 from pythor3.model.slm.plugins.passthrough.passthrough import (
         SequentialLayeredModelPassthrough,
         )
+from pythor3.model import SequentialLayeredModel
 from pythor3.operation import fbcorr_
 from pythor3.operation import lnorm_
 
@@ -270,7 +271,7 @@ class LFWBandit(object):
         pass
 
     @classmethod
-    def evaluate(cls, config, ctrl):
+    def evaluate(cls, config, ctrl, use_theano=True):
         import skdata.lfw
 
         comparison = get_comparison(config)
@@ -281,15 +282,20 @@ class LFWBandit(object):
 
         batchsize = 16
 
-        slm = TheanoSLM(
-                in_shape=(batchsize, X.shape[3], X.shape[1], X.shape[2]),
-                description=config['desc'])
 
-        outshape = slm.out_shape
+        theano_slm = TheanoSLM(in_shape=(batchsize,) + X.shape[1:3],
+                               description=config['desc'])
+        desc = config['desc']
+        if use_theano:
+            slm = theano_slm
+        else:
+            slm = SequentialLayeredModel(X.shape[1:], desc)
 
-        feature_shp = (X.shape[0],) + slm.out_shape[1:]
+        outshape = theano_slm.out_shape
+
+        feature_shp = (X.shape[0],) + outshape[1:]
         features_fp = get_features_fp(X, feature_shp, batchsize, slm,
-                                      '/tmp/features.dat')
+                                      'features.dat')
         print 'RETURNING EARLY'
         return
 
@@ -338,7 +344,7 @@ class LFWBandit(object):
         return dict(loss=performance, status='ok')
 
 
-def get_features_fp(X, feature_shp, batchsize, slm, filename):
+def get_features_fp(X, feature_shp, batchsize, slm, filename, memmap=False):
     """
     X - 4-tensor of images
     feature_shp - 4-tensor of output feature shape (len matches X)
@@ -352,10 +358,14 @@ def get_features_fp(X, feature_shp, batchsize, slm, filename):
         filename, str(feature_shp)))
     size = 4 * np.prod(feature_shp)
     print('Total size: %i bytes (%fG)' % (size, size / float(1e9)))
-    features_fp = np.memmap(filename,
+
+    if memmap:
+        features_fp = np.memmap(filename,
             dtype='float32',
             mode='w+',
             shape=feature_shp)
+    else:
+        features_fp = np.empty(feature_shp,dtype='float32')
 
     i = 0
     t0 = time.time()
@@ -367,7 +377,8 @@ def get_features_fp(X, feature_shp, batchsize, slm, filename):
         else:
             xi = np.asarray(X[i:i+batchsize])
             done = False
-        feature_batch = slm.process_batch(xi.transpose(0, 3, 1, 2))
+        #feature_batch = slm.process_batch(xi.transpose(0, 3, 1, 2))
+        feature_batch = slm.process_batch(xi)
         delta = max(0,i + batchsize - len(X))
         features_fp[i:i+batchsize-delta] = feature_batch[delta:]
         if done:
@@ -384,11 +395,14 @@ def get_features_fp(X, feature_shp, batchsize, slm, filename):
     # -- docs hers:
     #    http://docs.scipy.org/doc/numpy/reference/generated/numpy.memmap.html
     #    say that deletion is the way to flush changes !?
-    del features_fp
-    return np.memmap(filename,
+    if memmap:
+        del features_fp
+        return np.memmap(filename,
             dtype='float32',
             mode='r',
             shape=feature_shp)
+    else:
+        return features_fp
 
 
 def get_pair_fp(A, B, c, X, n_features, name, feature_fp, comparison, filename):
