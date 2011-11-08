@@ -3,6 +3,8 @@ from nose.tools import assert_equals
 
 import scipy as sp
 import numpy as np
+import hyperopt.gdist as gd
+from pythor3.model import SequentialLayeredModel
 
 try:
     from scipy.misc import lena
@@ -10,20 +12,28 @@ except:
     from scipy import lena
 
 from theano_slm import TheanoSLM, LFWBandit
-from pythor3.model import SequentialLayeredModel
+import cvpr_params
 
 def test_foo():
     import pythor3
     print pythor3.plugin_library['model.slm']
 
 
+class InvalidDescription(Exception):
+    """Model description was invalid"""
+
+
 def match_single(desc, downsample=4):
 
     arr_in = (1.0 * lena())[::downsample, ::downsample]
-    pythor_model = SequentialLayeredModel(arr_in.shape, desc)
+    try:
+        pythor_model = SequentialLayeredModel(arr_in.shape, desc)
+        pythor_out = pythor_model.process(arr_in)
+    except ValueError:
+        raise InvalidDescription()
+
     theano_model = TheanoSLM(arr_in.shape, desc)
     theano_out = theano_model.process(arr_in)
-    pythor_out = pythor_model.process(arr_in)
 
     #fbcorr leaves in color channel of size 1
     if pythor_out.ndim == 3 and pythor_out.shape[2] == 1:
@@ -160,59 +170,81 @@ class L3Basic(unittest.TestCase):
         match_single(desc=self.desc)
 
 
-def test_bandit_small():
-    bandit = LFWBandit()
-    bandit.evaluate(
-            config=dict(
-                desc=L3Basic.desc
-                ),
-            ctrl=None)
+def test_cvpr_many():
+    passing_seeds = []
+    seed = 1
+    while len(passing_seeds) < 20:
+        template = gd.gDist(
+                repr(cvpr_params.config).replace("'",'"'))
+        config = template.sample(seed)
+        try:
+            match_single(config['desc'])
+            passing_seeds.append(seed)
+        except InvalidDescription:
+            print "Skipping invalid description from seed", seed
+        except Exception:
+            print config['desc']
+            raise
+        seed += 1
+    print 'passing seeds', passing_seeds
 
-def test_bandit_large():
-    desc = [
-        # -- Layer 0
-        [('lnorm', {'kwargs': {'inker_shape': (3, 3)}})],
+if 0:
+    def test_bandit_small():
+        bandit = LFWBandit()
+        bandit.evaluate(
+                config=dict(
+                    desc=L3Basic.desc
+                    ),
+                ctrl=None)
 
-        # -- Layer 1
-        [('fbcorr', {'kwargs': {'min_out': 0},
-                     'initialize': {
-                         'n_filters': 64,
-                         'filter_shape': (7, 7),
-                         # 'generate' value has the form ('generate_method', **method_kwargs)
-                         'generate': ('random:uniform', {'rseed': 42}),
-                     },
-                    }),
-         ('lpool', {'kwargs': {'ker_shape': (5, 5), 'stride': 2}}),
-         ('lnorm', {'kwargs': {'inker_shape': (3, 3)}}),
-        ],
 
-        # -- Layer 2
-        [('fbcorr', {'kwargs': {'min_out': 0},
-                     'initialize': {
-                         'n_filters': 64,
-                         'filter_shape': (5, 5),
-                         'generate': ('random:uniform', {'rseed': 42}),
-                     },
-                    }),
-         ('lpool', {'kwargs': {'ker_shape': (3, 3), 'stride': 2}}),
-         ('lnorm', {'kwargs': {'inker_shape': (3, 3)}}),
-        ],
+    def test_bandit_large():
+        desc = [
+            # -- Layer 0
+            [('lnorm', {'kwargs': {'inker_shape': (3, 3)}})],
 
-        # -- Layer 3
-        [('fbcorr', {'kwargs': {'min_out': 0},
-                     'initialize': {
-                         'n_filters': 128,
-                         'filter_shape': (9, 9),
-                         'generate': ('random:uniform', {'rseed': 42}),
-                     },
-                    }),
-         ('lpool', {'kwargs': {'ker_shape': (3, 3), 'stride': 2}}),
-         ('lnorm', {'kwargs': {'inker_shape': (3, 3)}}),
-        ],
-    ]
-    bandit = LFWBandit()
-    bandit.evaluate(
-            config=dict(
-                desc=desc
-                ),
-            ctrl=None)
+            # -- Layer 1
+            [('fbcorr', {'kwargs': {'min_out': 0},
+                         'initialize': {
+                             'n_filters': 64,
+                             'filter_shape': (7, 7),
+                             # 'generate' value has the form ('generate_method', **method_kwargs)
+                             'generate': ('random:uniform', {'rseed': 42}),
+                         },
+                        }),
+             ('lpool', {'kwargs': {'ker_shape': (5, 5), 'stride': 2}}),
+             ('lnorm', {'kwargs': {'inker_shape': (3, 3)}}),
+            ],
+
+            # -- Layer 2
+            [('fbcorr', {'kwargs': {'min_out': 0},
+                         'initialize': {
+                             'n_filters': 64,
+                             'filter_shape': (5, 5),
+                             'generate': ('random:uniform', {'rseed': 42}),
+                         },
+                        }),
+             ('lpool', {'kwargs': {'ker_shape': (3, 3), 'stride': 2}}),
+             ('lnorm', {'kwargs': {'inker_shape': (3, 3)}}),
+            ],
+
+            # -- Layer 3
+            [('fbcorr', {'kwargs': {'min_out': 0},
+                         'initialize': {
+                             'n_filters': 128,
+                             'filter_shape': (9, 9),
+                             'generate': ('random:uniform', {'rseed': 42}),
+                         },
+                        }),
+             ('lpool', {'kwargs': {'ker_shape': (3, 3), 'stride': 2}}),
+             ('lnorm', {'kwargs': {'inker_shape': (3, 3)}}),
+            ],
+        ]
+        bandit = LFWBandit()
+        bandit.evaluate(
+                config=dict(
+                    desc=desc
+                    ),
+                ctrl=None)
+
+

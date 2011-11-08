@@ -10,7 +10,8 @@ from theano.tensor.signal import downsample
 from pythor3.model.slm.plugins.passthrough.passthrough import (
         SequentialLayeredModelPassthrough,
         )
-from pythor3.operation.lnorm_ import EPSILON as lnorm_EPSILON
+from pythor3.operation import fbcorr_
+from pythor3.operation import lnorm_
 
 
 def dict_add(a, b):
@@ -67,8 +68,15 @@ class TheanoSLM(object):
 
     def init_fbcorr(self, x, x_shp, n_filters,
             filter_shape,
-            min_out=0,
+            min_out=fbcorr_.DEFAULT_MIN_OUT,
+            max_out=fbcorr_.DEFAULT_MAX_OUT,
+            stride=fbcorr_.DEFAULT_STRIDE,
+            mode=fbcorr_.DEFAULT_MODE,
             generate=None):
+        # Reference implementation:
+        # ../pythor3/pythor3/operation/fbcorr_/plugins/scipy_naive/scipy_naive.py
+        if stride != fbcorr_.DEFAULT_STRIDE:
+            raise NotImplementedError('stride is not used in reference impl.')
         fake_x = np.empty((x_shp[2], x_shp[3], x_shp[1]),
                 x.dtype)
         kerns = self.SLMP._get_filterbank(fake_x,
@@ -81,11 +89,26 @@ class TheanoSLM(object):
                 kerns,
                 image_shape=x_shp,
                 filter_shape=kerns.shape,
-                border_mode='valid')
-        x_shp = (x_shp[0], n_filters,
-                x_shp[2] - filter_shape[0] + 1,
-                x_shp[3] - filter_shape[1] + 1)
-        return tensor.maximum(x, min_out), x_shp
+                border_mode=mode)
+        if mode == 'valid':
+            x_shp = (x_shp[0], n_filters,
+                    x_shp[2] - filter_shape[0] + 1,
+                    x_shp[3] - filter_shape[1] + 1)
+        elif mode == 'full':
+            x_shp = (x_shp[0], n_filters,
+                    x_shp[2] + filter_shape[0] - 1,
+                    x_shp[3] + filter_shape[1] - 1)
+        else:
+            raise NotImplementedError('fbcorr mode', mode)
+
+        if min_out is None and max_out is None:
+            return x, x_shp
+        elif min_out is None:
+            return tensor.minimum(x, max_out), x_shp
+        elif max_out is None:
+            return tensor.maximum(x, min_out), x_shp
+        else:
+            return tensor.clip(x, min_out, max_out), x_shp
 
     def boxconv(self, x, x_shp, kershp, channels=False):
         """
@@ -115,32 +138,48 @@ class TheanoSLM(object):
         return rval, rshp
 
     def init_lnorm(self, x, x_shp,
-            min_out=0,
-            inker_shape=(3, 3),
-            outker_shape=(3, 3),
-            remove_mean=False,
-            div_method='euclidean',
-            threshold=0.,
-            stretch=1.,
-            mode='valid'):
-        EPSILON = lnorm_EPSILON
-        if outker_shape != inker_shape: raise NotImplementedError()
-        if remove_mean: raise NotImplementedError()
-        if div_method != 'euclidean': raise NotImplementedError()
-        if mode != 'valid': raise NotImplementedError()
-        if inker_shape != (3, 3): raise NotImplementedError()
+            inker_shape=lnorm_.DEFAULT_INKER_SHAPE,    # (3, 3)
+            outker_shape=lnorm_.DEFAULT_OUTKER_SHAPE,  # (3, 3)
+            remove_mean=lnorm_.DEFAULT_REMOVE_MEAN,    # False
+            div_method=lnorm_.DEFAULT_DIV_METHOD,      # 'euclidean'
+            threshold=lnorm_.DEFAULT_THRESHOLD,        # 0.
+            stretch=lnorm_.DEFAULT_STRETCH,            # 1.
+            mode=lnorm_.DEFAULT_MODE,                  # 'valid'
+            ):
+        # Reference implementation:
+        # ../pythor3/pythor3/operation/lnorm_/plugins/scipy_naive/scipy_naive.py
+        EPSILON = lnorm_.EPSILON
+        if mode != 'valid':
+            raise NotImplementedError('lnorm requires mode=valid', mode)
 
-        ssq, ssqshp = self.boxconv(x ** 2, x_shp, inker_shape, channels=True)
-        arr_div = tensor.sqrt(ssq) + EPSILON
+        if outker_shape == inker_shape:
+            size = np.asarray(x_shp[1] * inker_shape[0] * inker_shape[1],
+                    dtype=x.dtype)
+            ssq, ssqshp = self.boxconv(x ** 2, x_shp, inker_shape,
+                    channels=True)
+            xs = inker_shape[0] // 2
+            ys = inker_shape[1] // 2
+            if div_method == 'euclidean':
+                if remove_mean:
+                    arr_sum, _shp = self.boxconv(x, x_shp, inker_shape,
+                            channels=True)
+                    arr_num = x[:, :, xs:-xs, ys:-ys] - arr_sum / size
+                    arr_div = EPSILON + tensor.sqrt(
+                            tensor.maximum(0,
+                                ssq - (arr_sum ** 2) / size))
+                else:
+                    arr_num = x[:, :, xs:-xs, ys:-ys]
+                    arr_div = EPSILON + tensor.sqrt(ssq)
+            else:
+                raise NotImplementedError('div_method', div_method)
+        else:
+            raise NotImplementedError('outker_shape != inker_shape')
         if stretch != 1:
-            xx = xx * stretch
+            arr_num = arr_num * stretch
             arr_div = arr_div * stretch
-        denom = tensor.switch(arr_div < (threshold + EPSILON), 1.0, arr_div)
+        arr_div = tensor.switch(arr_div < (threshold + EPSILON), 1.0, arr_div)
 
-        xs = inker_shape[0] // 2
-        ys = inker_shape[0] // 2
-        arr_num = x[:, :, xs:-xs, ys:-ys]
-        r = arr_num / denom
+        r = arr_num / arr_div
         r_shp = x_shp[0], x_shp[1], ssqshp[2], ssqshp[3]
         return r, r_shp
 
