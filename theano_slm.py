@@ -273,7 +273,6 @@ class LFWBandit(object):
     def evaluate(cls, config, ctrl):
         import skdata.lfw
 
-        os.chdir(config['workdir'])
         comparison = get_comparison(config)
 
         dataset = skdata.lfw.Funneled()
@@ -290,7 +289,7 @@ class LFWBandit(object):
 
         feature_shp = (X.shape[0],) + slm.out_shape[1:]
         features_fp = get_features_fp(X, feature_shp, batchsize, slm,
-                os.path.join(config['workdir'], 'features.dat'))
+                                      '/tmp/features.dat')
         print 'RETURNING EARLY'
         return
 
