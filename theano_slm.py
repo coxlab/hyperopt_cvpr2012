@@ -231,7 +231,8 @@ class LFWBandit(object):
     @classmethod
     def evaluate(cls, config, ctrl):
         import skdata.lfw
-        
+
+        os.chdir(config['workdir'])
         comparison = get_comparison(config)
 
         dataset = skdata.lfw.Funneled()
@@ -247,37 +248,37 @@ class LFWBandit(object):
                 description=config['desc'])
 
         outshape = slm.out_shape
-    
+
         feature_shp = (X.shape[0],) + slm.out_shape[1:]
         features_fp = get_features_fp(X, feature_shp, batchsize, slm, 'features.dat')
-        
-        n_features = get_num_features(feature_shp, comparison)   
+
+        n_features = get_num_features(feature_shp, comparison)
         print(n_features)
 
         clas = asgd.naive_asgd.NaiveBinaryASGD(n_features)
-        
+
         num_splits = 1
         performances = []
-        for split_id in range(num_splits):            
+        for split_id in range(num_splits):
             A, B, ctrain = dataset.raw_verification_task_resplit(split='train_' + str(split_id))
-            train_feature_pairs_fp = get_pair_fp(A, B, ctrain, Xr, 
-                                                n_features, 'train_feature_pairs.dat', 
+            train_feature_pairs_fp = get_pair_fp(A, B, ctrain, Xr,
+                                                n_features, 'train_feature_pairs.dat',
                                                 features_fp, comparison, 'train_pairs.dat')
-               
+
             A, B, ctest = dataset.raw_verification_task_resplit(split='test_' + str(split_id))
-            test_feature_pairs_fp = get_pair_fp(A, B, ctest, Xr, 
-                                                n_features, 'test_feature_pairs.dat', 
-                                                features_fp, comparison, 'test_pairs.dat')      
-                                        
-        
+            test_feature_pairs_fp = get_pair_fp(A, B, ctest, Xr,
+                                                n_features, 'test_feature_pairs.dat',
+                                                features_fp, comparison, 'test_pairs.dat')
+
+
             clas = fit_w_early_stopping(model=clas, es=early_stopping(warmup=20), 
                                train_X = train_feature_pairs_fp,
                                train_y = ctrain,
                                validation_X = test_feature_pairs_fp,
                                validation_y = ctest)
-            
+
             prediction = clas.predict(test_feature_pairs_fp)
-            
+
             performance = (prediction != ctest).astype(np.float).mean()
             performances.append(performances)
 
@@ -285,9 +286,9 @@ class LFWBandit(object):
             os.remove(test_features_pairs_fp.filename)
             train_feature_pairs_fp.close()
             os.remove(train_features_pairs_fp.filename)
-            
+
         performance = np.array(performances).mean()
-        
+
         features_fp.close()
         os.remove(features_fp.filename)
 
@@ -324,7 +325,8 @@ def get_features_fp(X, feature_shp, batchsize, slm, filename):
                             dtype='float32',
                             mode='r', 
                             shape=feature_shp)    
-            
+
+
 def get_pair_fp(A, B, c, X, n_features, name, feature_fp, comparison, filename):
     Ar = np.array([os.path.split(ar)[-1] for ar in A])
     Br = np.array([os.path.split(br)[-1] for br in B])
