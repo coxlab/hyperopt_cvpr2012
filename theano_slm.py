@@ -289,7 +289,8 @@ class LFWBandit(object):
         outshape = slm.out_shape
 
         feature_shp = (X.shape[0],) + slm.out_shape[1:]
-        features_fp = get_features_fp(X, feature_shp, batchsize, slm, 'features.dat')
+        features_fp = get_features_fp(X, feature_shp, batchsize, slm,
+                os.path.join(config['workdir'], 'features.dat'))
         print 'RETURNING EARLY'
         return
 
@@ -345,13 +346,13 @@ def get_features_fp(X, feature_shp, batchsize, slm, filename):
     batchsize - number of features to extract in parallel
     slm - feature-extraction module (with .process_batch() fn)
     filename - store features to memmap here
+
+    returns - read-only memmap of features
     """
-    #file = tempfile.NamedTemporaryFile(delete=False)
-    print('TMP-->', filename)
-    print('Creating memmap for features of shape %s' % str(feature_shp))
+    print('Creating memmap %s for features of shape %s' % (
+        filename, str(feature_shp)))
     size = 4 * np.prod(feature_shp)
     print('Total size: %i bytes (%fG)' % (size, size / float(1e9)))
-    return
     features_fp = np.memmap(filename,
             dtype='float32',
             mode='w+',
@@ -361,7 +362,7 @@ def get_features_fp(X, feature_shp, batchsize, slm, filename):
     t0 = time.time()
     while True:
         if i + batchsize >= len(X):
-            assert i < len(X) 
+            assert i < len(X)
             xi = np.asarray(X[-batchsize:])
             done = True
         else:
@@ -374,10 +375,16 @@ def get_features_fp(X, feature_shp, batchsize, slm, filename):
             break
 
         i += batchsize
-        print 'i', i, xi.shape
-        t_per_image = (time.time() - t0) / (i * batchsize)
-        t_tot = t_per_image * X.shape[0]
-        print 'feature_extraction_estimate', t_tot / 60.0, 'mins'
+        if (i // batchsize) % 10 == 0:
+            t_cur = time.time() - t0
+            t_per_image = (time.time() - t0) / i
+            t_tot = t_per_image * X.shape[0]
+            print 'get_features_fp: %i / %i  mins: %.2f / %.2f ' % (
+                    i , len(X),
+                    t_cur / 60.0, t_tot / 60.0)
+    # -- docs hers:
+    #    http://docs.scipy.org/doc/numpy/reference/generated/numpy.memmap.html
+    #    say that deletion is the way to flush changes !?
     del features_fp
     return np.memmap(filename,
             dtype='float32',
