@@ -222,6 +222,7 @@ import asgd
 import numpy as np
 import tempfile
 import os.path as path
+from early_stopping import fit_w_early_stopping, early_stopping
 
 class LFWBandit(object):
     def __init__(self):
@@ -248,7 +249,7 @@ class LFWBandit(object):
         outshape = slm.out_shape
     
         feature_shp = (X.shape[0],) + slm.out_shape[1:]
-        features_fp = get_features_fp(X, feature_shp, batchsize, slm)
+        features_fp = get_features_fp(X, feature_shp, batchsize, slm, 'features.dat')
         
         n_features = get_num_features(feature_shp, comparison)   
         print(n_features)
@@ -258,44 +259,45 @@ class LFWBandit(object):
         num_splits = 1
         performances = []
         for split_id in range(num_splits):            
-            A, B, c = dataset.raw_verification_task_resplit(split='train_' + str(split_id))
-            train_feature_pairs_fp = get_pair_fp(A, B, c, Xr, 
+            A, B, ctrain = dataset.raw_verification_task_resplit(split='train_' + str(split_id))
+            train_feature_pairs_fp = get_pair_fp(A, B, ctrain, Xr, 
                                                 n_features, 'train_feature_pairs.dat', 
-                                                features_fp, comparison)
+                                                features_fp, comparison, 'train_pairs.dat')
                
-            A, B, c = dataset.raw_verification_task_resplit(split='test_' + str(split_id))
-            test_feature_pairs_fp = get_pair_fp(A, B, c, Xr, 
+            A, B, ctest = dataset.raw_verification_task_resplit(split='test_' + str(split_id))
+            test_feature_pairs_fp = get_pair_fp(A, B, ctest, Xr, 
                                                 n_features, 'test_feature_pairs.dat', 
-                                                features_fp, comparison)      
+                                                features_fp, comparison, 'test_pairs.dat')      
                                         
         
-            clas = fit_early_stopping(model=clas, es=early_stopping(warmup=20), 
+            clas = fit_w_early_stopping(model=clas, es=early_stopping(warmup=20), 
                                train_X = train_feature_pairs_fp,
                                train_y = ctrain,
-                               validition_X = test_feature_pairs_fp,
-                               validition_y = ctest)
+                               validation_X = test_feature_pairs_fp,
+                               validation_y = ctest)
             
             prediction = clas.predict(test_feature_pairs_fp)
             
             performance = (prediction != ctest).astype(np.float).mean()
             performances.append(performances)
-        
+
+            test_feature_pairs_fp.close()
+            os.remove(test_features_pairs_fp.filename)
+            train_feature_pairs_fp.close()
+            os.remove(train_features_pairs_fp.filename)
+            
         performance = np.array(performances).mean()
         
         features_fp.close()
         os.remove(features_fp.filename)
-        test_feature_pairs_fp.close()
-        os.remove(test_features_pairs_fp.filename)
-        train_feature_pairs_fp.close()
-        os.remove(train_features_pairs_fp.filename)
-        
+
         return dict(loss=performance, status='ok')
         
 
-def get_features_fp(X, feature_shp, batchsize, slm):
-    file = tempfile.NamedTemporaryFile(delete=False)
-    print('TMP-->',file.name)
-    features_fp = np.memmap(file.name,
+def get_features_fp(X, feature_shp, batchsize, slm, filename):
+    #file = tempfile.NamedTemporaryFile(delete=False)
+    print('TMP-->',filename)
+    features_fp = np.memmap(filename,
                             dtype='float32',
                             mode='w+', 
                             shape=feature_shp)
@@ -318,31 +320,31 @@ def get_features_fp(X, feature_shp, batchsize, slm):
         assert i < X.shape[0]
     
     del features_fp
-    return np.memmap(file.name,
+    return np.memmap(filename,
                             dtype='float32',
                             mode='r', 
                             shape=feature_shp)    
     
         
-def get_pair_fp(A, B, c, X, n_features, name, feature_fp, comparison):
+def get_pair_fp(A, B, c, X, n_features, name, feature_fp, comparison, filename):
     Ar = np.array([os.path.split(ar)[-1] for ar in A])
     Br = np.array([os.path.split(br)[-1] for br in B])
     Aind = np.searchsorted(X, Ar)
     Bind = np.searchsorted(X, Br)        
     pair_shp = (len(c), n_features)        
-    file = tempfile.NamedTemporaryFile(delete=False)
-    print('tmpfile',file.name)
-    feature_pairs_fp = np.memmap(file.name,
+    #file = tempfile.NamedTemporaryFile(delete=False)
+    print('tmpfile',filename)
+    feature_pairs_fp = np.memmap(filename,
                                 dtype='float32',
                                 mode='w+', 
                                 shape=pair_shp)
-    for (ind,(ai, bi)) in enumerate(zip(Aind,Bind)):
+    for (ind,(ai, bi)) in enumerate(zip(Aind,Bind)[:10]):
         feature_pairs_fp[ind] = compare(feature_fp[ai],
                                         feature_fp[bi],
                                         comparison)
-    
+        print(ind)
     del feature_pairs_fp
-    return np.memmap(file.name,
+    return np.memmap(filename,
                                 dtype='float32',
                                 mode='r', 
                                 shape=pair_shp)       
@@ -359,6 +361,6 @@ def get_num_features(x, comparison):
             
 def compare(x, y, comparison):
     if comparison == 'concatenate':
-        return np.concatenate(x.flatten(),y.flatten())
+        return np.concatenate([x.flatten(),y.flatten()])
         
 
