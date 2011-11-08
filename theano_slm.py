@@ -13,6 +13,9 @@ from pythor3.model.slm.plugins.passthrough.passthrough import (
 from pythor3.operation import fbcorr_
 from pythor3.operation import lnorm_
 
+class InvalidDescription(Exception):
+    """Model description was invalid"""
+
 
 def dict_add(a, b):
     rval = dict(a)
@@ -38,10 +41,15 @@ class TheanoSLM(object):
         print 'TheanoSLM.in_shape', self.in_shape
 
         # This guy is used to generate filterbanks
-        self.SLMP = SequentialLayeredModelPassthrough(
-                self.in_shape[2:],
-                description,
-                dtype=dtype)
+        try:
+            self.SLMP = SequentialLayeredModelPassthrough(
+                    self.in_shape[2:],
+                    description,
+                    dtype=dtype)
+        except ValueError, e:
+            if 'negative dimensions' in str(e):
+                raise InvalidDescription()
+            raise
 
 
         self.s_input = tensor.ftensor4('arr_in')
@@ -57,7 +65,10 @@ class TheanoSLM(object):
                             op_params.get('kwargs', {}),
                             op_params.get('initialize', {})))
                 print 'added layer', op_name, 'shape', x_shp
-        
+
+        if 0 == np.prod(x_shp):
+            raise InvalidDescription()
+
         self.out_shape = x_shp
 
         self._fn = theano.function([self.s_input], x,
@@ -128,13 +139,19 @@ class TheanoSLM(object):
             kerns = np.ones((1, 1) + kershp, dtype=x.dtype)
             x_shp = (x_shp[0]*x_shp[1], 1, x_shp[2], x_shp[3])
             x = x.reshape(x_shp)
-        rval = tensor.reshape(
-                conv.conv2d(x,
-                    kerns,
-                    image_shape=x_shp,
-                    filter_shape=kerns.shape,
-                    border_mode='valid'),
-                rshp)
+        try:
+            rval = tensor.reshape(
+                    conv.conv2d(x,
+                        kerns,
+                        image_shape=x_shp,
+                        filter_shape=kerns.shape,
+                        border_mode='valid'),
+                    rshp)
+        except Exception, e:
+            if "Bad size for the output shape" in str(e):
+                raise InvalidDescription()
+            else:
+                raise
         return rval, rshp
 
     def init_lnorm(self, x, x_shp,

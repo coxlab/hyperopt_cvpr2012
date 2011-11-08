@@ -11,16 +11,12 @@ try:
 except:
     from scipy import lena
 
-from theano_slm import TheanoSLM, LFWBandit
+from theano_slm import TheanoSLM, LFWBandit, InvalidDescription
 import cvpr_params
 
 def test_foo():
     import pythor3
     print pythor3.plugin_library['model.slm']
-
-
-class InvalidDescription(Exception):
-    """Model description was invalid"""
 
 
 def match_single(desc, downsample=4):
@@ -29,10 +25,27 @@ def match_single(desc, downsample=4):
     try:
         pythor_model = SequentialLayeredModel(arr_in.shape, desc)
         pythor_out = pythor_model.process(arr_in)
+        if pythor_out.size == 0:
+            pythor_accepted = False
+        else:
+            pythor_accepted = True
     except ValueError:
+        pythor_accepted = False
+
+
+    try:
+        theano_model = TheanoSLM(arr_in.shape, desc)
+        theano_accepted = True
+    except InvalidDescription:
+        theano_accepted = False
+
+    if pythor_accepted and not theano_accepted:
+        print 'PYTHOR_OUT shape', pythor_out.shape
+    assert theano_accepted == pythor_accepted
+
+    if not theano_accepted:
         raise InvalidDescription()
 
-    theano_model = TheanoSLM(arr_in.shape, desc)
     theano_out = theano_model.process(arr_in)
 
     #fbcorr leaves in color channel of size 1
