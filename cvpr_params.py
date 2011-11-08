@@ -67,23 +67,23 @@ lpool = {'kwargs': {'stride' : 2,
          }}
         
            
+activ =  {'min_out' : choice([null,0]),
+		  'max_out' : choice([1,null])}           
+           
 filter1 = {'initialize': {'filter_shape' : choice([(3,3),(5,5),(7,7),(9,9)]),
 					   'n_filters' : choice([16,32,64]),
 					   'generate': ('random:uniform',{'rseed':42})},
-		   'kwargs': {'min_out' : choice([null,0]),
-					  'max_out' : choice([1,null])}}
+		   'kwargs': activ}
            
 filter2 = {'initialize': {'filter_shape' : choice([(3,3),(5,5),(7,7),(9,9)]),
 					   'n_filters' : choice([16,32,64,128]),
 					   'generate': ('random:uniform',{'rseed':42})},
-		   'kwargs': {'min_out' : choice([null,0]),
-					  'max_out' : choice([1,null])}}
+		   'kwargs': activ}
 					      
 filter3 = {'initialize': {'filter_shape' : choice([(3,3),(5,5),(7,7),(9,9)]),
 					   'n_filters' : choice([16,32,64,128,256]),
 					   'generate': ('random:uniform',{'rseed':42})},
-		   'kwargs': {'min_out' : choice([null,0]),
-					  'max_out' : choice([1,null])}}					      
+		   'kwargs': activ}					      
             
 layers = [[('lnorm', lnorm)],
           [('fbcorr', filter1),
@@ -120,6 +120,7 @@ activ_gaussian = {'min_out' : choice([null, {'dist' : 'gaussian',
                                                       'mean' : uniform(1-.2,1+.2),
                                                       'stdev' : uniform(0, .2)}])                                          
                  }
+                 
        
                  
 def activ_multiple_gen(dist,minargs,minkwargs,maxargs,maxkwargs,num):
@@ -129,26 +130,33 @@ def activ_multiple_gen(dist,minargs,minkwargs,maxargs,maxkwargs,num):
     return activ
 
 activ_multiple_uniform = activ_multiple_gen(uniform,(-.2,.2),{},(1-.2,1+.2),{},5)
+
+filter1_h = copy.deepcopy(filter1)
+filter1_h['kwargs'] = choice([activ_uniform,
+					        activ_gaussian,
+					        activ_multiple_uniform])
+					        
+filter2_h = copy.deepcopy(filter2)
+filter2_h['kwargs'] = choice([activ_uniform,
+					        activ_gaussian,
+					        activ_multiple_uniform])
+					        
+filter3_h = copy.deepcopy(filter3)
+filter3_h['kwargs'] = choice([activ_uniform,
+					        activ_gaussian,
+					        activ_multiple_uniform])					        
        
-layers_activ_hetero = [{'lnorm' : lnorm},
- 					   {'filter' : filter1,
-					    'activ' : choice([activ_uniform,
-					                      activ_gaussian,
-					                      activ_multiple_uniform]),
-					    'lpool' : lpool,
-					    'lnorm' : lnorm},
-					   {'filter' : filter2,
-					    'activ' :  choice([activ_uniform,
-					                       activ_gaussian,
-					                       activ_multiple_uniform]),
-					    'lpool' : lpool,
-					    'lnorm' : lnorm},
-					   {'filter' : filter3,
-					    'activ' :  choice([activ_uniform,
-					                       activ_gaussian,
-					                       activ_multiple_uniform]),
-					    'lpool' : lpool,
-					    'lnorm' : lnorm}
-			 		  ] 
-            
+layers_h = [[('lnorm', lnorm)],
+            [('fbcorr_h', filter1_h),
+             ('lpool', lpool),
+             ('lnorm', lnorm)],
+            [('fbcorr_h', filter2_h),
+             ('lpool' , lpool),
+             ('lnorm' , lnorm)],
+            [('fbcorr_h', filter3_h),
+             ('lpool', lpool),
+             ('lnorm', lnorm)]
+           ]  
+           
+
         

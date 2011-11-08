@@ -19,6 +19,13 @@ def dict_add(a, b):
     rval.update(b)
     return rval
 
+def get_into_shape(x):
+	if hasattr(x,'__iter__'):
+		x = np.array(x)
+		assert x.ndim == 1
+		x = x.reshape((1,len(x))
+	return x
+
 
 class TheanoSLM(object):
     """
@@ -66,6 +73,13 @@ class TheanoSLM(object):
         if 0:
             theano.printing.debugprint(self._fn)
 
+    def init_fbcorr_h(self, min_out=fbcorr_.DEFAULT_MIN_OUT,
+                      max_out=fbcorr_.DEFAULT_MAX_OUT,
+                      **kwargs):      
+        kwargs['max_out'] = get_into_shape(max_out)
+        kwargs['min_out'] = get_into_shape(min_out)       
+        return init_fbcorr(self, **kwargs)
+            
     def init_fbcorr(self, x, x_shp, n_filters,
             filter_shape,
             min_out=fbcorr_.DEFAULT_MIN_OUT,
@@ -137,6 +151,13 @@ class TheanoSLM(object):
                 rshp)
         return rval, rshp
 
+    def init_lnorm_h(self, threshold=lnorm_.DEFAULT_THRESHOLD,
+                     stretch=lnorm_DEFAULT_STRETCH,
+                     **kwargs):
+        kwargs['threshold'] = get_into_shape(threshold)
+        kwargs['stretch'] = get_into_shape(stretch)
+        return init_lnorm(self, **kwargs)
+
     def init_lnorm(self, x, x_shp,
             inker_shape=lnorm_.DEFAULT_INKER_SHAPE,    # (3, 3)
             outker_shape=lnorm_.DEFAULT_OUTKER_SHAPE,  # (3, 3)
@@ -182,6 +203,11 @@ class TheanoSLM(object):
         r = arr_num / arr_div
         r_shp = x_shp[0], x_shp[1], ssqshp[2], ssqshp[3]
         return r, r_shp
+
+    def init_lpool_h(self, order=1,
+                     **kwargs):
+        kwargs['order'] = get_into_shape(order)
+        return init_lpool(self, **kwargs)
 
     def init_lpool(self, x, x_shp,
             ker_shape=(3, 3),
