@@ -330,19 +330,33 @@ class LFWBandit(object):
                                     mode='r', 
                                     shape=test_pair_shp)       
                                     
-	
-	
+    
+        clas = fit_early_stopping(model=clas, es=early_stopping(warmup=20), 
+                           train_X = train_feature_pairs_fp,
+                           train_y = ctrain,
+                           validition_X = test_feature_pairs_fp,
+                           validition_y = ctest)
+        
+        prediction = clas.predict(test_feature_pairs_fp)
+        
+        performance = (prediction != ctest).astype(np.float).mean()
+        
+        return dict(loss=performance, status='ok')
+        
+        
+        
+        
 def get_comparison(config):
-	comparison = config.get('comparison', 'concatenate')
-	assert comparison in ['concatenate']
-	return comparison
+    comparison = config.get('comparison', 'concatenate')
+    assert comparison in ['concatenate']
+    return comparison
 
 def get_num_features(x, comparison):
-	if comparison == 'concatenate':
-		return 2*x[1]*x[2]*x[3]
-			
+    if comparison == 'concatenate':
+        return 2*x[1]*x[2]*x[3]
+            
 def compare(x, y, comparison):
-	if comparison == 'concatenate':
-		return np.concatenate(x,y)
+    if comparison == 'concatenate':
+        return np.concatenate(x,y)
         
 
