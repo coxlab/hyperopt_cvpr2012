@@ -1,16 +1,28 @@
+import sys
 import hyperopt.gdist
 
-from theano_slm import TheanoSLM, LFWBandit
+from theano_slm import TheanoSLM, LFWBandit, InvalidDescription
 import cvpr_params
 
-def run_lfw(seed, use_theano=True, skip_features=False):
+def run_lfw(seed, use_theano=True, compute_features=True):
     template = hyperopt.gdist.gDist(
             repr(cvpr_params.config).replace("'",'"'))
     config = template.sample(seed)
     bandit = LFWBandit()
     config['cvpr_params_seed'] = seed
-    config['skip_features'] = skip_features
-    bandit.evaluate(config, None, use_theano=use_theano)
+    config['compute_features'] = compute_features
+    result = bandit.evaluate(config, None, use_theano=use_theano)
+    print ('FINAL result for seed=%i' % seed), result
+
+def test_many_seeds():
+    for seed in range(100):
+        try:
+            result = run_lfw(seed)
+        except InvalidDescription:
+            print 'INVALID SEED', seed
+        sys.stdout.flush()
+        sys.stderr.flush()
+    assert 0  # make sure nosetests prints everything out
 
 def test_seed_A():
     run_lfw(31)
