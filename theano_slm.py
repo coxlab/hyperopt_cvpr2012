@@ -32,19 +32,26 @@ class TheanoSLM(object):
     def __init__(self, in_shape, description,
             dtype='float32', rng=888):
 
+        # -- transpose shape to theano-convention (channel major)
+        self.pythor_in_shape = in_shape
+
         if len(in_shape) == 2:
-            self.in_shape = (1, 1,) +  in_shape
+            self.theano_in_shape = (1, 1,) +  in_shape
         elif len(in_shape) == 3:
-            self.in_shape = (1,) + in_shape
+            self.theano_in_shape = (1, in_shape[2], in_shape[0], in_shape[1])
         else:
-            self.in_shape = in_shape
-        assert len(self.in_shape) == 4
-        print 'TheanoSLM.in_shape', self.in_shape
+            self.theano_in_shape = (in_shape[0],
+                    in_shape[3],
+                    in_shape[1],
+                    in_shape[2])
+        del in_shape
+        assert len(self.theano_in_shape) == 4
+        print 'TheanoSLM.theano_in_shape', self.theano_in_shape
 
         # This guy is used to generate filterbanks
         try:
             self.SLMP = SequentialLayeredModelPassthrough(
-                    self.in_shape[2:],
+                    self.pythor_in_shape,
                     description,
                     dtype=dtype)
         except ValueError, e:
@@ -57,7 +64,7 @@ class TheanoSLM(object):
         self.rng = np.random.RandomState(rng)  # XXX check for rng being int
 
         x = self.s_input
-        x_shp = self.in_shape
+        x_shp = self.theano_in_shape
         for layer_idx, layer_desc in enumerate(description):
             for op_name, op_params in layer_desc:
                 init_fn = getattr(self, 'init_' + op_name)
@@ -70,7 +77,8 @@ class TheanoSLM(object):
         if 0 == np.prod(x_shp):
             raise InvalidDescription()
 
-        self.out_shape = x_shp
+        self.theano_out_shape = x_shp
+        self.pythor_out_shape = x_shp[2], x_shp[3], x_shp[1]
         self.s_output = x
 
     def init_fbcorr(self, x, x_shp, n_filters,
@@ -220,21 +228,17 @@ class TheanoSLM(object):
         except AttributeError:
             fn = self._fn = theano.function([self.s_input], self.s_output,
                 allow_input_downcast=True)
-        return fn(arr_in)
-
+        return fn(arr_in).transpose(0, 2, 3, 1)
 
     def process(self, arr_in):
-        if arr_in.ndim == 2:
-            rval = self.process_batch(arr_in[None,None,:,:])[0]
-            if rval.shape[0] > 1:
-                # XXX: decide whether IO of self.fn is channel major or minor
-                return rval.transpose(1, 2, 0)
-            else:
-                return rval[0]
-        elif arr_in.ndim == 3:
-            return self.process_batch(arr_in[None,:,:,:])[0]
+        """Return something like SequentialLayeredModel would have
+        """
+        rval = self.process_batch(arr_in[None,None,:,:])[0]
+        if rval.shape[2] == 1:
+            # -- drop the colour channel for single-channel images
+            return rval[:, :, 0]
         else:
-            raise TypeError('rank error', arr_in)
+            return rval
 
 
 import asgd
