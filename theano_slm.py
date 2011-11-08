@@ -304,7 +304,7 @@ def get_features_fp(X, feature_shp, batchsize, slm, filename):
                             
     i = 0
     t0 = time.time()                                
-    while i < 10:
+    while True:
         xi = np.asarray(X[i:i+batchsize])
         if len(xi) == batchsize:
             feature_batch = slm.process_batch(xi.transpose(0, 3, 1, 2))
@@ -337,7 +337,7 @@ def get_pair_fp(A, B, c, X, n_features, name, feature_fp, comparison, filename):
                                 dtype='float32',
                                 mode='w+', 
                                 shape=pair_shp)
-    for (ind,(ai, bi)) in enumerate(zip(Aind,Bind)[:10]):
+    for (ind,(ai, bi)) in enumerate(zip(Aind,Bind)):
         feature_pairs_fp[ind] = compare(feature_fp[ai],
                                         feature_fp[bi],
                                         comparison)
