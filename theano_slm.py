@@ -21,7 +21,7 @@ from pythor3.model import SequentialLayeredModel
 from pythor3.operation import fbcorr_
 from pythor3.operation import lnorm_
 
-import asgd
+import asgd  # use master branch from https://github.com/jaberg/asgd
 import skdata.larray
 import skdata.utils
 import hyperopt.genson_bandits as gb
