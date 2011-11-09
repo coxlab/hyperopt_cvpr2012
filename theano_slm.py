@@ -238,7 +238,12 @@ class TheanoSLM(object):
 
     def process_batch(self, arr_in):
         fn = self.get_theano_fn()
-        channel_major_in = arr_in.transpose(0, 3, 1, 2)
+        if arr_in.ndim == 4:
+            channel_major_in = arr_in.transpose(0, 3, 1, 2)
+        elif arr_in.ndim == 3:
+            channel_major_in = arr_in[:,:,:,None].transpose(0, 3, 1, 2)
+        else:
+            raise NotImplementedError()
         return fn(channel_major_in).transpose(0, 2, 3, 1)
 
     def process(self, arr_in):
@@ -275,7 +280,9 @@ def get_relevant_images(dataset, dtype='uint8'):
     yr = yr[inds]
         
     X = skdata.larray.lmap(
-                skdata.utils.image.ImgLoader(shape=(250, 250, 3), dtype=dtype),
+                skdata.utils.image.ImgLoader(
+                    shape=dataset.img_shape,  # lfw-specific
+                    dtype=dtype),
                 Xr)
                 
     Xr = np.array([os.path.split(x)[-1] for x in Xr])
@@ -292,15 +299,20 @@ class LFWBandit(object):
 
         comparison = get_comparison(config)
 
-        # XXX: use Aligned right?
-        dataset = skdata.lfw.Funneled()
+        dataset = skdata.lfw.Aligned()
 
         X, y, Xr = get_relevant_images(dataset)
 
         batchsize = 16
 
-        theano_slm = TheanoSLM(in_shape=(batchsize,) + X.shape[1:],
-                               description=config['desc'])
+        if X.ndim == 3:
+            theano_slm = TheanoSLM(in_shape=(batchsize,) + X.shape[1:] + (1,),
+                                   description=config['desc'])
+        elif X.ndim == 4:
+            theano_slm = TheanoSLM(in_shape=(batchsize,) + X.shape[1:],
+                                   description=config['desc'])
+        else:
+            raise NotImplementedError()
         desc = config['desc']
         if use_theano:
             slm = theano_slm
