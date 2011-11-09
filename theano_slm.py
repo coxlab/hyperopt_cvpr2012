@@ -287,7 +287,7 @@ class TheanoSLM(object):
             return rval
 
 
-def train_classifier(config, ctrl, train_Xy, test_Xy, n_features):
+def train_classifier(config, train_Xy, test_Xy, n_features):
     print 'training classifier'
     train_X, train_y = train_Xy
     test_X, test_y = test_Xy
@@ -305,7 +305,6 @@ def train_classifier(config, ctrl, train_Xy, test_Xy, n_features):
     model, earlystopper = fit_w_early_stopping(
             model=asgd.naive_asgd.NaiveBinaryASGD(
                 n_features=n_features,
-                l2_regularization=0,
                 sgd_step_size0=1e-3),
             es=EarlyStopping(warmup=20), # unit: validation intervals
             train_X=normalize(train_X),
@@ -401,7 +400,7 @@ def get_performance(outfile, config, use_theano=True):
                 with PairFeatures(dataset, 'test_' + str(split_id),
                         Xr, n_features, features_fp, comparison,
                                   test_pairs_filename) as test_Xy:
-                    performances.append(train_classifier(config, ctrl,
+                    performances.append(train_classifier(config,
                                 train_Xy, test_Xy, n_features))
     performance = np.array(performances).mean()
     result = dict(loss=performance, status='ok')
