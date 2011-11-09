@@ -306,6 +306,7 @@ def train_classifier(config, train_Xy, test_Xy, n_features):
     model, earlystopper = fit_w_early_stopping(
             model=asgd.naive_asgd.NaiveBinaryASGD(
                 n_features=n_features,
+                l2_regularization=0,
                 sgd_step_size0=1e-3),
             es=EarlyStopping(warmup=20), # unit: validation intervals
             train_X=normalize(train_X),
