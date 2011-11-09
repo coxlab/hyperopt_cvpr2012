@@ -6,6 +6,7 @@ import itertools
 import tempfile
 import os.path as path
 import hashlib
+import cPickle
 
 import numpy as np
 
@@ -331,7 +332,7 @@ class LFWBanditSGE(LFWBandit):
         opstring = '-l qname=hyperopt.q -o /home/render/hyperopt_jobs -e /home/render/hyperopt_jobs'
         jobid = sge_utils.qsub(get_performance, (outfile, config, use_theano),
                      opstring=opstring)
-        status = sge_utils.wait_and_get_statuses([job_id])
+        status = sge_utils.wait_and_get_statuses([jobid])
         return cPickle.loads(open(outfile).read())
         
         
@@ -521,7 +522,7 @@ class PairFeatures(object):
                                     shape=pair_shp)
         else:
             print('using memory for features of shape %s' % str(pair_shp))
-            feature_pairs_fp = np.empty(pair_shape, dtype='float32')                                    
+            feature_pairs_fp = np.empty(pair_shp, dtype='float32')                                    
                                     
         for (ind,(ai, bi)) in enumerate(zip(Aind, Bind)[:10]):
             feature_pairs_fp[ind] = compare(feature_fp[ai],
