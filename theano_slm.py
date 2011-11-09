@@ -350,7 +350,7 @@ def get_performance(outfile, config, use_theano=True):
 
     X, y, Xr = get_relevant_images(dataset)
 
-    batchsize = 16
+    batchsize = 4
 
     desc = config['desc']
     interpret_model(desc)
