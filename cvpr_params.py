@@ -1,4 +1,4 @@
-
+import copy
 
 ##Plain vanilla params  -- from FG11 paper
 
@@ -67,27 +67,36 @@ lpool = {'kwargs': {'stride' : 2,
          }}
         
            
-filter1 = {'initialize': {'filter_shape' : choice([(3,3),(5,5),(7,7),(9,9)]),
-                          'n_filters' : choice([16,32,64]),
-                          'generate': ('random:uniform',
-                              {'rseed': choice([11, 12, 13, 14, 15])})},
-            'kwargs': {'min_out' : choice([null,0]),
-                       'max_out' : choice([1,null])}}
-           
-filter2 = {'initialize': {'filter_shape' : choice([(3,3),(5,5),(7,7),(9,9)]),
-                        'n_filters' : choice([16,32,64,128]),
-                        'generate': ('random:uniform',
-                            {'rseed': choice([21, 22, 23, 24, 25])})},
-           'kwargs': {'min_out' : choice([null,0]),
-                      'max_out' : choice([1,null])}}
+activ =  {'min_out' : choice([null,0]),
+		  'max_out' : choice([1,null])}
 
-filter3 = {'initialize': {'filter_shape' : choice([(3,3),(5,5),(7,7),(9,9)]),
-                           'n_filters' : choice([16,32,64,128,256]),
-                           'generate': ('random:uniform',
-                               {'rseed': choice([31, 32, 33, 34, 35])})},
-           'kwargs': {'min_out' : choice([null,0]),
-                      'max_out' : choice([1,null])}}
-            
+filter1 = dict(
+        initialize=dict(
+            filter_shape=choice([(3,3),(5,5),(7,7),(9,9)]),
+            n_filters=choice([16,32,64]),
+            generate=(
+                'random:uniform',
+                {'rseed': choice([11, 12, 13, 14, 15])})),
+         kwargs=activ)
+
+filter2 = dict(
+        initialize=dict(
+            filter_shape=choice([(3, 3), (5, 5), (7, 7), (9, 9)]),
+            n_filters=choice([16, 32, 64, 128]),
+            generate=(
+                'random:uniform',
+                {'rseed': choice([21, 22, 23, 24, 25])})),
+         kwargs=activ)
+
+filter3 = dict(
+        initialize=dict(
+            filter_shape=choice([(3, 3), (5, 5), (7, 7), (9, 9)]),
+            n_filters=choice([16, 32, 64, 128, 256]),
+            generate=(
+                'random:uniform',
+                {'rseed': choice([31, 32, 33, 34, 35])})),
+         kwargs=activ)
+
 layers = [[('lnorm', lnorm)],
           [('fbcorr', filter1),
            ('lpool', lpool),
@@ -108,48 +117,70 @@ config = {'desc' : layers}
     
 ### with activations -- replace activ in each case with:
 ###TODO:  get this in the right format for pythor
-activ_uniform = {'min_out' : choice([null, {'dist' : 'uniform',
-                                            'mean' : uniform(-.2,.2),
-                                            'delta' : uniform(0, .2)}]),
-                 'max_out' : choice([null, {'dist' : 'uniform',
-                                            'mean' : uniform(1-.2,1+.2),
-                                            'delta' : uniform(0, .2)}])                                          
+activ_uniform = {'min_out' : choice([null, {'generate' : ('random:uniform',
+                                                          {'rseed':42,
+                                                           'mean':uniform(-.2,.2),
+                                                           'delta':uniform(0,.2)}),
+                                                           
+                                            }]),
+                 'max_out' : choice([null, {'generate' : ('random:uniform',
+                                                          {'rseed':42,
+                                                           'mean':uniform(.8,1.2),
+                                                           'delta':uniform(0,.2)}),
+                                                           
+                                            }]),                                       
                 }
               
-activ_gaussian = {'min_out' : choice([null, {'dist' : 'gaussian',
-                                                      'mean' : uniform(-.2,.2),
-                                                      'stdev' : uniform(0, .2)}]),
-                  'max_out' : choice([null, {'dist' : 'gaussian',
-                                                      'mean' : uniform(1-.2,1+.2),
-                                                      'stdev' : uniform(0, .2)}])                                          
-                 }
+activ_gaussian = {'min_out' : choice([null, {'generate' : ('random:normal',
+                                                          {'rseed':42,
+                                                           'mean':uniform(-.2,.2),
+                                                           'stdev':uniform(0,.2)}),
+                                                           
+                                            }]),
+                 'max_out' : choice([null, {'generate' : ('random:normal',
+                                                          {'rseed':42,
+                                                           'mean':uniform(.8,1.2),
+                                                           'stdev':uniform(0,.2)}),
+                                                           
+                                            }]),                                       
+                }
+                 
        
                  
 def activ_multiple_gen(dist,minargs,minkwargs,maxargs,maxkwargs,num):
     activ = {}
-    activ['min_out'] = choice([null] + [{'values': [dist(*minargs,**minkwargs) for ind in range(k)]} for k in range(num)])
-    activ['max_out'] = choice([null] + [{'values': [dist(*maxargs,**maxkwargs) for ind in range(k)]} for k in range(num)]) 
+    activ['min_out'] = choice([null] + [{'generate': ('fixedvalues',{'values':[dist(*minargs,**minkwargs) for ind in range(k)]})} for k in range(1,num+1)])
+    activ['max_out'] = choice([null] + [{'generate': ('fixedvalues',{'values':[dist(*maxargs,**maxkwargs) for ind in range(k)]})} for k in range(1,num+1)]) 
     return activ
 
 activ_multiple_uniform = activ_multiple_gen(uniform,(-.2,.2),{},(1-.2,1+.2),{},5)
+
+filter1_h = copy.deepcopy(filter1)
+filter1_h['kwargs'] = choice([activ_uniform,
+					        activ_gaussian,
+					        activ_multiple_uniform])
+					        
+filter2_h = copy.deepcopy(filter2)
+filter2_h['kwargs'] = choice([activ_uniform,
+					        activ_gaussian,
+					        activ_multiple_uniform])
+					        
+filter3_h = copy.deepcopy(filter3)
+filter3_h['kwargs'] = choice([activ_uniform,
+					        activ_gaussian,
+					        activ_multiple_uniform])					        
        
-layers_activ_hetero = [{'lnorm' : lnorm},
- 					   {'filter' : filter1,
-					    'activ' : choice([activ_uniform,
-					                      activ_gaussian,
-					                      activ_multiple_uniform]),
-					    'lpool' : lpool,
-					    'lnorm' : lnorm},
-					   {'filter' : filter2,
-					    'activ' :  choice([activ_uniform,
-					                       activ_gaussian,
-					                       activ_multiple_uniform]),
-					    'lpool' : lpool,
-					    'lnorm' : lnorm},
-					   {'filter' : filter3,
-					    'activ' :  choice([activ_uniform,
-					                       activ_gaussian,
-					                       activ_multiple_uniform]),
-					    'lpool' : lpool,
-					    'lnorm' : lnorm}
-			 		  ]
+layers_h = [[('lnorm', lnorm)],
+            [('fbcorr_h', filter1_h),
+             ('lpool', lpool),
+             ('lnorm', lnorm)],
+            [('fbcorr_h', filter2_h),
+             ('lpool' , lpool),
+             ('lnorm' , lnorm)],
+            [('fbcorr_h', filter3_h),
+             ('lpool', lpool),
+             ('lnorm', lnorm)]
+           ]  
+           
+
+config_h = {'desc' : layers_h}

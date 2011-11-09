@@ -40,3 +40,15 @@ def test_genson_sampling_not_random():
         for i in range(10):
             b = template.sample(seed)
             assert a == b
+
+
+def test_genson_sampling_not_random_more():
+    template = hyperopt.gdist.gDist(
+            repr(cvpr_params.config_h).replace("'",'"'))
+    # -- test that template.sample(seed) is a deterministic function of seed
+    for seed in range(20):
+        a = template.sample(seed)
+        # print a
+        for i in range(10):
+            b = template.sample(seed)
+            assert a == b
