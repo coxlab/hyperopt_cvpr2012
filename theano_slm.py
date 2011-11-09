@@ -58,11 +58,11 @@ class TheanoSLM(object):
         print 'TheanoSLM.theano_in_shape', self.theano_in_shape
 
         # This guy is used to generate filterbanks
-        mock_description = get_mock_description(description)
+        pythor_safe_description = get_pythor_safe_description(description)
         try:
             self.SLMP = SequentialLayeredModelPassthrough(
                     self.pythor_in_shape,
-                    mock_description,
+                    pythor_safe_description,
                     dtype=dtype)
         except ValueError, e:
             if 'negative dimensions' in str(e):
@@ -347,6 +347,8 @@ def get_performance(outfile, config, use_theano=True):
 
     batchsize = 16
 
+    desc = config['desc']
+    interpret_model(desc)
     if X.ndim == 3:
         theano_slm = TheanoSLM(
                 in_shape=(batchsize,) + X.shape[1:] + (1,),
@@ -357,9 +359,7 @@ def get_performance(outfile, config, use_theano=True):
                 description=config['desc'])
     else:
         raise NotImplementedError()
-    desc = config['desc']
-    interpret_model(desc)
-    
+
     if use_theano:
         slm = theano_slm
         # -- pre-compile the function to not mess up timing
@@ -565,7 +565,7 @@ def get_into_shape(x):
         x = x.reshape((1,len(x)))
     return x
 
-def get_mock_description(description):
+def get_pythor_safe_description(description):
     description = copy.deepcopy(description)
     for layer_idx, layer_desc in enumerate(description):
         for (op_idx,(op_name, op_params)) in enumerate(layer_desc):
