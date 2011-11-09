@@ -30,6 +30,9 @@ def test_many_more_seeds():
 def test_seed_A():
     run_lfw(31)
 
+def test_seed_10():
+    run_lfw(10)
+
 def test_seed_A_pythor():
     run_lfw(31, use_theano=False) 
 
