@@ -2,6 +2,10 @@ import sys
 import time
 import os
 import copy
+import itertools
+import tempfile
+import os.path as path
+import hashlib
 
 import numpy as np
 
@@ -16,30 +20,16 @@ from pythor3.model import SequentialLayeredModel
 from pythor3.operation import fbcorr_
 from pythor3.operation import lnorm_
 
-class InvalidDescription(Exception):
-    """Model description was invalid"""
+import asgd
+import skdata.larray
+import skdata.utils
+import hyperopt.genson_bandits as gb
+
+import sge_utils
+import cvpr_params
+from early_stopping import fit_w_early_stopping, EarlyStopping
 
 
-def dict_add(a, b):
-    rval = dict(a)
-    rval.update(b)
-    return rval
-
-def get_into_shape(x):
-    if hasattr(x,'__iter__'):
-        x = np.array(x)
-        assert x.ndim == 1
-        x = x.reshape((1,len(x)))
-    return x
-
-def get_mock_description(description):
-    description = copy.deepcopy(description)
-    for layer_idx, layer_desc in enumerate(description):
-        for (op_idx,(op_name, op_params)) in enumerate(layer_desc):
-            if op_name.endswith('_h'):
-                newname = op_name[:-2]
-                layer_desc[op_idx] = (newname,op_params)
-    return description
 
 class TheanoSLM(object):
     """
@@ -293,92 +283,15 @@ class TheanoSLM(object):
             return rval
 
 
-import asgd
-import numpy as np
-import tempfile
-import os.path as path
-from early_stopping import fit_w_early_stopping, EarlyStopping
-
-import skdata.larray
-import skdata.utils
-
-def get_relevant_images(dataset, dtype='uint8'):
-
-    Xr, yr = dataset.raw_classification_task()
-    Xr = np.array(Xr)
-    
-    Atr, Btr, c = dataset.raw_verification_task_resplit(split='train_0')
-    Ate, Bte, c = dataset.raw_verification_task_resplit(split='test_0')
-    all_images = np.unique(np.concatenate([Atr,Btr,Ate,Bte]))
-        
-    inds = np.searchsorted(Xr,all_images)
-    Xr = Xr[inds]   
-    yr = yr[inds]
-        
-    X = skdata.larray.lmap(
-                skdata.utils.image.ImgLoader(
-                    shape=dataset.img_shape,  # lfw-specific
-                    dtype=dtype),
-                Xr)
-                
-    Xr = np.array([os.path.split(x)[-1] for x in Xr])
-    
-    return X, yr, Xr
-    
-import itertools
-
-def flatten(x):
-    return list(itertools.chain(*x))
-    
-def interpret_activ(filter, activ):
-    n_filters = filter['initialize']['n_filters']
-    generator = activ['generate'][0].split(':')
-    vals = activ['generate'][1]
-    
-    if generator[0] == 'random':
-        dist = generator[1]
-        if dist == 'uniform':
-            mean = vals['mean']
-            delta = vals['delta']
-            seed = vals['rseed']
-            rng = np.random.RandomState(seed)
-            low = mean-(delta/2)
-            high = mean+(delta/2)
-            size = (n_filters,)
-            activ_vec = rng.uniform(low=low, high=high, size=size)
-        elif dist == 'normal':
-            mean = vals['mean']
-            stdev = vals['stdev']
-            seed = vals['rseed']
-            rng = np.random.RandomState(seed)
-            size = (n_filters,)
-            activ_vec = rng.normal(loc=mean, scale=stdev, size=size)
-        else:
-            raise ValueError, 'distribution not recognized'
-    elif generator[0] == 'fixedvalues':
-        values = vals['values']
-        num = n_filters / len(values)
-        delta = n_filters - len(values)*num
-        activ_vec = flatten([[v]*num for v in values] + [[values[-1]*delta]])
-    else:
-        raise ValueError, 'not recognized'
-    
-    return activ_vec
-        
-def interpret_model(desc):
-    for layer in desc:
-        for (opname,opparams) in layer:  
-            if opname == 'fbcorr_h':
-                kw = opparams['kwargs']
-                if hasattr(kw.get('min_out'),'keys'):
-                    kw['min_out'] = interpret_activ(opparams, kw['min_out'])
-                if hasattr(kw.get('max_out'),'keys'):
-                    kw['max_out'] = interpret_activ(opparams, kw['max_out'])                    
-        
-
-class LFWBandit(object):
+class LFWBandit(gb.GensonBandit):
     def __init__(self):
-        pass
+        source_string = repr(cvpr_params.config).replace("'",'"')
+        super(LFWBandit, self).__init__(source_string=source_string)
+
+    @classmethod
+    def evaluate(cls, config, ctrl, use_theano=True):
+        result = get_performance(None, config, use_theano)
+        return result
 
     @classmethod
     def train_classifier(cls, config, ctrl, train_Xy, test_Xy, n_features):
@@ -410,72 +323,98 @@ class LFWBandit(object):
                 validation_interval=100)     # unit: batches
         return earlystopper.best_y
 
+
+class LFWBanditSGE(LFWBandit):
     @classmethod
     def evaluate(cls, config, ctrl, use_theano=True):
-        import skdata.lfw
-
-        comparison = get_comparison(config)
-
-        dataset = skdata.lfw.Aligned()
-
-        X, y, Xr = get_relevant_images(dataset)
-
-        batchsize = 16
-
-        if X.ndim == 3:
-            theano_slm = TheanoSLM(
-                    in_shape=(batchsize,) + X.shape[1:] + (1,),
-                    description=config['desc'])
-        elif X.ndim == 4:
-            theano_slm = TheanoSLM(
-                    in_shape=(batchsize,) + X.shape[1:],
-                    description=config['desc'])
-        else:
-            raise NotImplementedError()
-        desc = config['desc']
-        interpret_model(desc)
+        outfile = os.path.join('/tmp',get_config_string(config))
+        opstring = '-l qname=hyperopt.q -o /home/render/hyperopt_jobs -e /home/render/hyperopt_jobs'
+        jobid = qsub(get_performance, (outfile, config, use_theano),
+                     opstring=opstring)
+        status = wait_and_get_statuses([job_id])
+        return cPickle.loads(open(outfile).read())
         
-        if use_theano:
-            slm = theano_slm
-            # -- pre-compile the function to not mess up timing
-            slm.get_theano_fn()
-        else:
-            cthor_sse = {'plugin':'cthor', 'plugin_kwargs':{'variant':'sse'}}
-            cthor = {'plugin':'cthor', 'plugin_kwargs':{}}
-            slm = SequentialLayeredModel(X.shape[1:], desc,
-                                         plugin='passthrough',
-                                         plugin_kwargs={'plugin_mapping': {
-                                             'fbcorr': cthor,
-                                              'lnorm' : cthor,
-                                              'lpool' : cthor,
-                                         }})
+        
 
-        feature_shp = (X.shape[0],) + theano_slm.pythor_out_shape
+def get_performance(outfile, config, use_theano=True):
+	import skdata.lfw
 
-        num_splits = 1
-        performances = []
-        with ExtractedFeatures(X, feature_shp, batchsize, slm,
-                '/tmp/features.dat') as features_fp:
+	comparison = get_comparison(config)
 
-            n_features = get_num_features(feature_shp, comparison)
-            print(n_features)
+	dataset = skdata.lfw.Aligned()
 
-            for split_id in range(num_splits):
-                with PairFeatures(dataset, 'train_' + str(split_id), Xr,
-                        n_features, 'train_feature_pairs.dat',
-                        features_fp, comparison, 'train_pairs.dat') as train_Xy:
-                    with PairFeatures(dataset, 'test_' + str(split_id),
-                            Xr, n_features, 'test_feature_pairs.dat',
-                            features_fp, comparison, 'test_pairs.dat') as test_Xy:
-                        performances.append(
-                                cls.train_classifier(config, ctrl,
-                                    train_Xy, test_Xy, n_features))
-        performance = np.array(performances).mean()
-        return dict(loss=performance, status='ok')
+	X, y, Xr = get_relevant_images(dataset)
+
+	batchsize = 16
+
+	if X.ndim == 3:
+		theano_slm = TheanoSLM(
+				in_shape=(batchsize,) + X.shape[1:] + (1,),
+				description=config['desc'])
+	elif X.ndim == 4:
+		theano_slm = TheanoSLM(
+				in_shape=(batchsize,) + X.shape[1:],
+				description=config['desc'])
+	else:
+		raise NotImplementedError()
+	desc = config['desc']
+	interpret_model(desc)
+	
+	if use_theano:
+		slm = theano_slm
+		# -- pre-compile the function to not mess up timing
+		slm.get_theano_fn()
+	else:
+		cthor_sse = {'plugin':'cthor', 'plugin_kwargs':{'variant':'sse'}}
+		cthor = {'plugin':'cthor', 'plugin_kwargs':{}}
+		slm = SequentialLayeredModel(X.shape[1:], desc,
+									 plugin='passthrough',
+									 plugin_kwargs={'plugin_mapping': {
+										 'fbcorr': cthor,
+										  'lnorm' : cthor,
+										  'lpool' : cthor,
+									 }})
+
+	feature_shp = (X.shape[0],) + theano_slm.pythor_out_shape
+
+	num_splits = 1
+	performances = []
+	with ExtractedFeatures(X, feature_shp, batchsize, slm,
+			'/tmp/features.dat') as features_fp:
+
+		n_features = get_num_features(feature_shp, comparison)
+		print(n_features)
+
+		for split_id in range(num_splits):
+			with PairFeatures(dataset, 'train_' + str(split_id), Xr,
+					n_features, 'train_feature_pairs.dat',
+					features_fp, comparison, 'train_pairs.dat') as train_Xy:
+				with PairFeatures(dataset, 'test_' + str(split_id),
+						Xr, n_features, 'test_feature_pairs.dat',
+						features_fp, comparison, 'test_pairs.dat') as test_Xy:
+					performances.append(
+							cls.train_classifier(config, ctrl,
+								train_Xy, test_Xy, n_features))
+	performance = np.array(performances).mean()
+	result = dict(loss=performance, status='ok')
+	
+    if outfile is not None:
+        outfh = open(outfile,'w')
+        cPickle.dump(result, outfh)
+        outfh.close()
+    return result
+
+
+def use_memmap(size):
+    if size < 5e8:
+        memmap = False
+    else:
+        memmap = True
+    return memmap
 
 
 class ExtractedFeatures(object):
-    def __init__(self, X, feature_shp, batchsize, slm, filename, memmap=False):
+    def __init__(self, X, feature_shp, batchsize, slm, filename):
         """
         X - 4-tensor of images
         feature_shp - 4-tensor of output feature shape (len matches X)
@@ -485,19 +424,21 @@ class ExtractedFeatures(object):
 
         returns - read-only memmap of features
         """
-        print('Creating memmap %s for features of shape %s' % (
-            filename, str(feature_shp)))
+
         size = 4 * np.prod(feature_shp)
         print('Total size: %i bytes (%.2f GB)' % (size, size / float(1e9)))
-
-        if memmap:
-            features_fp = np.memmap(filename,
-                dtype='float32',
-                mode='w+',
-                shape=feature_shp)
-        else:
-            features_fp = np.zeros(feature_shp,dtype='float32')
-
+		memmap = use_memmap(size)	
+		if memmap:
+			print('Creating memmap %s for features of shape %s' % (
+												  filename, str(feature_shp)))
+			features_fp = np.memmap(filename,
+				dtype='float32',
+				mode='w+',
+				shape=feature_shp)
+		else:
+			print('Using memory for features of shape %s' % str(feature_shp)) 
+			features_fp = np.empty(feature_shp,dtype='float32')
+	
         i = 0
         t0 = time.time()
         while True:
@@ -559,30 +500,43 @@ class PairFeatures(object):
         Bind = np.searchsorted(X, Br)
         assert len(Aind) == len(Bind)
         pair_shp = (len(labels), n_features)
-        print('get_pair_fp memmap %s for features of shape %s' % (
-            filename, str(pair_shp)))
+        
         size = 4 * np.prod(pair_shp)
-        print('Total size: %i bytes (%.2f GB)' % (size, size / float(1e9)))
-        feature_pairs_fp = np.memmap(filename,
-                                    dtype='float32',
-                                    mode='w+',
-                                    shape=pair_shp)
+        print('Total size: %i bytes (%.2f GB)' % (size, size / float(1e9)))                            
+		memmap = use_memmap(size)		
+		if memmap:
+			print('get_pair_fp memmap %s for features of shape %s' % (
+												    filename, str(pair_shp)))
+			feature_pairs_fp = np.memmap(filename,
+									dtype='float32',
+									mode='w+',
+									shape=pair_shp)
+		else:
+			print('using memory for features of shape %s' % str(pair_shp))
+			feature_pairs_fp = np.empty(pair_shape, dtype='float32')                                    
+                                    
         for (ind,(ai, bi)) in enumerate(zip(Aind, Bind)):
             feature_pairs_fp[ind] = compare(feature_fp[ai],
                                             feature_fp[bi],
                                             comparison)
             if ind % 100 == 0:
                 print('get_pair_fp  %i / %i' % (ind, len(Aind)))
-        print ('flushing memmap')
-        sys.stdout.flush()
-        del feature_pairs_fp
-        self.filename = filename
-        self.features = np.memmap(filename,
-                dtype='float32',
-                mode='r',
-                shape=pair_shp)
-        self.labels = labels
 
+        if memmap:                
+			print ('flushing memmap')
+			sys.stdout.flush()
+			del feature_pairs_fp
+			self.filename = filename
+			self.features = np.memmap(filename,
+					dtype='float32',
+					mode='r',
+					shape=pair_shp)
+		else:
+		    self.features = feature_pairs_fp
+		    self.filename = ''
+		    
+        self.labels = labels
+        
     def __enter__(self):
         self.work(*self.args, **self.kwargs)
         return (self.features, self.labels)
@@ -591,6 +545,34 @@ class PairFeatures(object):
         if self.filename:
             os.remove(self.filename)
 
+
+
+######utils
+
+class InvalidDescription(Exception):
+    """Model description was invalid"""
+
+
+def dict_add(a, b):
+    rval = dict(a)
+    rval.update(b)
+    return rval
+
+def get_into_shape(x):
+    if hasattr(x,'__iter__'):
+        x = np.array(x)
+        assert x.ndim == 1
+        x = x.reshape((1,len(x)))
+    return x
+
+def get_mock_description(description):
+    description = copy.deepcopy(description)
+    for layer_idx, layer_desc in enumerate(description):
+        for (op_idx,(op_name, op_params)) in enumerate(layer_desc):
+            if op_name.endswith('_h'):
+                newname = op_name[:-2]
+                layer_desc[op_idx] = (newname,op_params)
+    return description
 
 def get_comparison(config):
     comparison = config.get('comparison', 'concatenate')
@@ -610,3 +592,77 @@ def get_num_features(shp, comparison):
 def compare(x, y, comparison):
     if comparison == 'concatenate':
         return np.concatenate([x.flatten(),y.flatten()])
+
+
+def get_relevant_images(dataset, dtype='uint8'):
+
+    Xr, yr = dataset.raw_classification_task()
+    Xr = np.array(Xr)
+    
+    Atr, Btr, c = dataset.raw_verification_task_resplit(split='train_0')
+    Ate, Bte, c = dataset.raw_verification_task_resplit(split='test_0')
+    all_images = np.unique(np.concatenate([Atr,Btr,Ate,Bte]))
+        
+    inds = np.searchsorted(Xr,all_images)
+    Xr = Xr[inds]   
+    yr = yr[inds]
+        
+    X = skdata.larray.lmap(
+                skdata.utils.image.ImgLoader(
+                    shape=dataset.img_shape,  # lfw-specific
+                    dtype=dtype),
+                Xr)
+                
+    Xr = np.array([os.path.split(x)[-1] for x in Xr])
+    
+    return X, yr, Xr
+    
+def flatten(x):
+    return list(itertools.chain(*x))
+    
+    
+#####model stuff
+def interpret_activ(filter, activ):
+    n_filters = filter['initialize']['n_filters']
+    generator = activ['generate'][0].split(':')
+    vals = activ['generate'][1]
+    
+    if generator[0] == 'random':
+        dist = generator[1]
+        if dist == 'uniform':
+            mean = vals['mean']
+            delta = vals['delta']
+            seed = vals['rseed']
+            rng = np.random.RandomState(seed)
+            low = mean-(delta/2)
+            high = mean+(delta/2)
+            size = (n_filters,)
+            activ_vec = rng.uniform(low=low, high=high, size=size)
+        elif dist == 'normal':
+            mean = vals['mean']
+            stdev = vals['stdev']
+            seed = vals['rseed']
+            rng = np.random.RandomState(seed)
+            size = (n_filters,)
+            activ_vec = rng.normal(loc=mean, scale=stdev, size=size)
+        else:
+            raise ValueError, 'distribution not recognized'
+    elif generator[0] == 'fixedvalues':
+        values = vals['values']
+        num = n_filters / len(values)
+        delta = n_filters - len(values)*num
+        activ_vec = flatten([[v]*num for v in values] + [[values[-1]*delta]])
+    else:
+        raise ValueError, 'not recognized'
+    
+    return activ_vec
+        
+def interpret_model(desc):
+    for layer in desc:
+        for (opname,opparams) in layer:  
+            if opname == 'fbcorr_h':
+                kw = opparams['kwargs']
+                if hasattr(kw.get('min_out'),'keys'):
+                    kw['min_out'] = interpret_activ(opparams, kw['min_out'])
+                if hasattr(kw.get('max_out'),'keys'):
+                    kw['max_out'] = interpret_activ(opparams, kw['max_out'])                    
