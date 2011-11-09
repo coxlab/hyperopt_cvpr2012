@@ -401,8 +401,7 @@ def get_performance(outfile, config, use_theano=True):
                 with PairFeatures(dataset, 'test_' + str(split_id),
                         Xr, n_features, features_fp, comparison,
                                   test_pairs_filename) as test_Xy:
-                    performances.append(
-                            cls.train_classifier(config, ctrl,
+                    performances.append(train_classifier(config, ctrl,
                                 train_Xy, test_Xy, n_features))
     performance = np.array(performances).mean()
     result = dict(loss=performance, status='ok')
