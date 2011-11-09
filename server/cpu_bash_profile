@@ -1,4 +1,4 @@
 export EDITOR=emacs
 export LD_LIBRARY_PATH=/opt/boost_1_43/lib
 export PATH=/opt/bin:/usr/kerberos/bin:/usr/local/bin:/bin:/usr/bin:/home/tools/centos5_cpu/MonteTheano/bin:/home/tools/centos5_cpu/hyperopt/bin:$PATH
-export PYTHONPATH=$/home/tools/centos5_cpu/MonteTheano:/home/tools/centos5_cpu/hyperopt:/home/extractor/hyperopt_cvpr2012:$PYTHONPATH
+export PYTHONPATH=/home/tools/centos5_cpu/MonteTheano:/home/tools/centos5_cpu/hyperopt:/home/extractor/hyperopt_cvpr2012:$PYTHONPATH
