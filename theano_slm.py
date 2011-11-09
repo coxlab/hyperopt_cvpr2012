@@ -26,7 +26,10 @@ import skdata.larray
 import skdata.utils
 import hyperopt.genson_bandits as gb
 
-import sge_utils
+try:
+    import sge_utils
+except ImportError:
+    pass
 import cvpr_params
 from early_stopping import fit_w_early_stopping, EarlyStopping
 
@@ -348,7 +351,7 @@ def get_performance(outfile, config, use_theano=True):
 
     X, y, Xr = get_relevant_images(dataset)
 
-    batchsize = 16
+    batchsize = 4
 
     desc = config['desc']
     interpret_model(desc)
@@ -456,11 +459,11 @@ class ExtractedFeatures(object):
                 done = False
             t1 = time.time()    
             feature_batch = slm.process_batch(xi)
-            print('compute: ',time.time()-t1)
+            # print('compute: ',time.time()-t1)
             t2 = time.time()
             delta = max(0,i + batchsize - len(X))
             features_fp[i:i+batchsize-delta] = feature_batch[delta:]
-            print('write: ',time.time()-t2)
+            # print('write: ',time.time()-t2)
             if done:
                 break
 
