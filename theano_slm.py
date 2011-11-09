@@ -603,7 +603,7 @@ def get_relevant_images(dataset, dtype='uint8'):
     Ate, Bte, c = dataset.raw_verification_task_resplit(split='test_0')
     all_images = np.unique(np.concatenate([Atr,Btr,Ate,Bte]))
         
-    inds = np.searchsorted(Xr,all_images)
+    inds = np.searchsorted(Xr, all_images)
     Xr = Xr[inds]   
     yr = yr[inds]
         
