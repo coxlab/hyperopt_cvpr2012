@@ -68,23 +68,35 @@ lpool = {'kwargs': {'stride' : 2,
         
            
 activ =  {'min_out' : choice([null,0]),
-		  'max_out' : choice([1,null])}           
-           
-filter1 = {'initialize': {'filter_shape' : choice([(3,3),(5,5),(7,7),(9,9)]),
-					   'n_filters' : choice([16,32,64]),
-					   'generate': ('random:uniform',{'rseed':42})},
-		   'kwargs': activ}
-           
-filter2 = {'initialize': {'filter_shape' : choice([(3,3),(5,5),(7,7),(9,9)]),
-					   'n_filters' : choice([16,32,64,128]),
-					   'generate': ('random:uniform',{'rseed':42})},
-		   'kwargs': activ}
-					      
-filter3 = {'initialize': {'filter_shape' : choice([(3,3),(5,5),(7,7),(9,9)]),
-					   'n_filters' : choice([16,32,64,128,256]),
-					   'generate': ('random:uniform',{'rseed':42})},
-		   'kwargs': activ}					      
-            
+		  'max_out' : choice([1,null])}
+
+filter1 = dict(
+        initialize=dict(
+            filter_shape=choice([(3,3),(5,5),(7,7),(9,9)]),
+            n_filters=choice([16,32,64]),
+            generate=(
+                'random:uniform',
+                {'rseed': choice([11, 12, 13, 14, 15])})),
+         kwargs=activ)
+
+filter2 = dict(
+        initialize=dict(
+            filter_shape=choice([(3, 3), (5, 5), (7, 7), (9, 9)]),
+            n_filters=choice([16, 32, 64, 128]),
+            generate=(
+                'random:uniform',
+                {'rseed': choice([21, 22, 23, 24, 25])})),
+         kwargs=activ)
+
+filter3 = dict(
+        initialize=dict(
+            filter_shape=choice([(3, 3), (5, 5), (7, 7), (9, 9)]),
+            n_filters=choice([16, 32, 64, 128, 256]),
+            generate=(
+                'random:uniform',
+                {'rseed': choice([31, 32, 33, 34, 35])})),
+         kwargs=activ)
+
 layers = [[('lnorm', lnorm)],
           [('fbcorr', filter1),
            ('lpool', lpool),
@@ -172,4 +184,3 @@ layers_h = [[('lnorm', lnorm)],
            
 
 config_h = {'desc' : layers_h}
-        

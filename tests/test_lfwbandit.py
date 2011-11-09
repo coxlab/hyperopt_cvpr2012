@@ -1,8 +1,8 @@
 import sys
 import hyperopt.gdist
 
-from theano_slm import TheanoSLM, LFWBandit, InvalidDescription
-import cvpr_params
+from hyperopt_cvpr2012.theano_slm import TheanoSLM, LFWBandit, InvalidDescription
+from hyperopt_cvpr2012 import cvpr_params
 
 def run_lfw(seed, use_theano=True, compute_features=True):
     template = hyperopt.gdist.gDist(
@@ -14,8 +14,8 @@ def run_lfw(seed, use_theano=True, compute_features=True):
     result = bandit.evaluate(config, None, use_theano=use_theano)
     print ('FINAL result for seed=%i' % seed), result
 
-def test_many_seeds():
-    for seed in range(100):
+def test_many_seeds(start=0, stop=100):
+    for seed in range(start, stop):
         try:
             result = run_lfw(seed)
         except InvalidDescription:
@@ -23,6 +23,9 @@ def test_many_seeds():
         sys.stdout.flush()
         sys.stderr.flush()
     assert 0  # make sure nosetests prints everything out
+
+def test_many_more_seeds():
+    return test_many_seeds(1000, 1100)
 
 def test_seed_A():
     run_lfw(31)
