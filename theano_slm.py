@@ -25,7 +25,10 @@ import skdata.larray
 import skdata.utils
 import hyperopt.genson_bandits as gb
 
-import sge_utils
+try:
+    import sge_utils
+except ImportError:
+    pass
 import cvpr_params
 from early_stopping import fit_w_early_stopping, EarlyStopping
 
