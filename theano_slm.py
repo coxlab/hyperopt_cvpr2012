@@ -391,7 +391,6 @@ def get_performance(outfile, config, use_theano=True):
             feature_file_name) as features_fp:
 
         n_features = get_num_features(feature_shp, comparison)
-        print(n_features)
 
         for split_id in range(num_splits):
             with PairFeatures(dataset, 'train_' + str(split_id), Xr,
@@ -586,7 +585,7 @@ def get_pythor_safe_description(description):
 
 def get_comparison(config):
     comparison = config.get('comparison', 'concatenate')
-    assert comparison in ['concatenate', 'add', 'multiply']
+    assert comparison in ['concatenate', 'add', 'sub', 'multiply', 'subsq']
     return comparison
 
 
@@ -602,8 +601,14 @@ def get_num_features(shp, comparison):
         return 2 * shp[1] * shp[2] * shp[3]
     elif comparison == 'add':
         return shp[1] * shp[2] * shp[3]
+    elif comparison == 'sub':
+        return shp[1] * shp[2] * shp[3]
     elif comparison == 'multiply':
         return shp[1] * shp[2] * shp[3]
+    elif comparison == 'subsq':
+        return shp[1] * shp[2] * shp[3]
+    else:
+        raise ValueError(comparison)
 
 
 def compare(x, y, comparison):
@@ -611,8 +616,14 @@ def compare(x, y, comparison):
         return np.concatenate([x.flatten(),y.flatten()])
     elif comparison == 'add':
         return x.flatten() + y.flatten()
+    elif comparison == 'sub':
+        return x.flatten() - y.flatten()
     elif comparison == 'multiply':
-        return x.flatten() * y.flatten() 
+        return x.flatten() * y.flatten()
+    elif comparison == 'subsq':
+        return (x.flatten() - y.flatten()) ** 2
+    else:
+        raise ValueError(comparison)
 
 
 def get_relevant_images(dataset, dtype='uint8'):
