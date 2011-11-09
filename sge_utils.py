@@ -4,8 +4,57 @@ import tempfile
 import cPickle
 import string
 import os
-import starflow.de as de
+import time
 import hashlib
+
+import BeautifulSoup
+
+SGE_STATUS_INTERVAL = 5
+SGE_EXIT_STATUS_PATTERN = re.compile('exit_status[\s]*([\d])')
+
+
+class QacctParsingError(Exception):
+    def __init__(self,job,name):
+        self.msg = "Can't parse exit status from " + repr(name) + " for job " + repr(job) + "."
+
+
+def wait_and_get_statuses(joblist):
+
+    f = tempfile.NamedTemporaryFile(delete=False)
+    name = f.name
+    f.close()
+    
+    jobset =  set(joblist)
+    
+    statuses = []
+    while True:
+        os.system('qstat -xml > ' + name)
+        Soup = BeautifulSoup.BeautifulStoneSoup(open(name))
+        running_jobs = [str(x.contents[0]) for x in Soup.findAll('jb_job_number')]
+        if jobset.intersection(running_jobs):
+            time.sleep(SGE_STATUS_INTERVAL)
+        else:
+            break
+    
+    
+    for job in jobset:
+        e = os.system('qacct -j ' + job + ' > ' + name)
+        if e != 0:
+            time.sleep(20)
+        os.system('qacct -j ' + job + ' > ' + name)
+        s = open(name).read()      
+        try:
+            res = SGE_EXIT_STATUS_PATTERN.search(s)
+            child_exitStatus = int(res.groups()[0])
+            statuses.append(child_exitStatus)
+        except:
+            raise QacctParsingError(job,name)
+        else:
+            pass
+    
+    os.remove(name)
+    return statuses
+
 
 def callfunc(fn,argfile):
     args = cPickle.loads(open(argfile).read())
@@ -28,15 +77,12 @@ SGE_SUBMIT_PATTERN = re.compile("Your job ([\d]+) ")
 import random
 
 def get_temp_file():
-
     random.seed()
     hash = "%016x" % random.getrandbits(128)
     filename = os.path.join(os.environ['HOME'] , 'qsub_tmp',"qsub_" + hash)
     return open(filename,'w')
 
-def qsub(fn,args,opstring=''):
-
-    python_executable = de.DataEnvironmentManager().python_executable
+def qsub(fn, args, opstring='', python_executable='python'):
 
     module_name = fn.__module__
     fnname = fn.__name__

@@ -6,6 +6,7 @@ import itertools
 import tempfile
 import os.path as path
 import hashlib
+import cPickle
 
 import numpy as np
 
@@ -332,9 +333,9 @@ class LFWBanditSGE(LFWBandit):
     def evaluate(cls, config, ctrl, use_theano=True):
         outfile = os.path.join('/tmp',get_config_string(config))
         opstring = '-l qname=hyperopt.q -o /home/render/hyperopt_jobs -e /home/render/hyperopt_jobs'
-        jobid = qsub(get_performance, (outfile, config, use_theano),
+        jobid = sge_utils.qsub(get_performance, (outfile, config, use_theano),
                      opstring=opstring)
-        status = wait_and_get_statuses([job_id])
+        status = sge_utils.wait_and_get_statuses([jobid])
         return cPickle.loads(open(outfile).read())
         
         
@@ -449,7 +450,7 @@ class ExtractedFeatures(object):
     
         i = 0
         t0 = time.time()
-        while True:
+        while i < 10:
             if i + batchsize >= len(X):
                 assert i < len(X)
                 xi = np.asarray(X[-batchsize:])
@@ -524,9 +525,9 @@ class PairFeatures(object):
                                     shape=pair_shp)
         else:
             print('using memory for features of shape %s' % str(pair_shp))
-            feature_pairs_fp = np.empty(pair_shape, dtype='float32')                                    
+            feature_pairs_fp = np.empty(pair_shp, dtype='float32')                                    
                                     
-        for (ind,(ai, bi)) in enumerate(zip(Aind, Bind)):
+        for (ind,(ai, bi)) in enumerate(zip(Aind, Bind)[:10]):
             feature_pairs_fp[ind] = compare(feature_fp[ai],
                                             feature_fp[bi],
                                             comparison)
