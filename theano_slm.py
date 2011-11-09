@@ -448,7 +448,7 @@ class ExtractedFeatures(object):
     
         i = 0
         t0 = time.time()
-        while i < 10:
+        while True:
             if i + batchsize >= len(X):
                 assert i < len(X)
                 xi = np.asarray(X[-batchsize:])
@@ -458,11 +458,11 @@ class ExtractedFeatures(object):
                 done = False
             t1 = time.time()    
             feature_batch = slm.process_batch(xi)
-            # print('compute: ',time.time()-t1)
+            print('compute: ',time.time()-t1)
             t2 = time.time()
             delta = max(0,i + batchsize - len(X))
             features_fp[i:i+batchsize-delta] = feature_batch[delta:]
-            # print('write: ',time.time()-t2)
+            print('write: ',time.time()-t2)
             if done:
                 break
 
@@ -525,7 +525,7 @@ class PairFeatures(object):
             print('using memory for features of shape %s' % str(pair_shp))
             feature_pairs_fp = np.empty(pair_shp, dtype='float32')                                    
                                     
-        for (ind,(ai, bi)) in enumerate(zip(Aind, Bind)[:10]):
+        for (ind,(ai, bi)) in enumerate(zip(Aind, Bind)):
             feature_pairs_fp[ind] = compare(feature_fp[ai],
                                             feature_fp[bi],
                                             comparison)
