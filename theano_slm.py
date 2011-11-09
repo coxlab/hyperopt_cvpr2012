@@ -459,11 +459,11 @@ class ExtractedFeatures(object):
                 done = False
             t1 = time.time()    
             feature_batch = slm.process_batch(xi)
-            print('compute: ',time.time()-t1)
+            # print('compute: ',time.time()-t1)
             t2 = time.time()
             delta = max(0,i + batchsize - len(X))
             features_fp[i:i+batchsize-delta] = feature_batch[delta:]
-            print('write: ',time.time()-t2)
+            # print('write: ',time.time()-t2)
             if done:
                 break
 
