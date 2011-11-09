@@ -337,67 +337,67 @@ class LFWBanditSGE(LFWBandit):
         
 
 def get_performance(outfile, config, use_theano=True):
-	import skdata.lfw
+    import skdata.lfw
 
-	comparison = get_comparison(config)
+    comparison = get_comparison(config)
 
-	dataset = skdata.lfw.Aligned()
+    dataset = skdata.lfw.Aligned()
 
-	X, y, Xr = get_relevant_images(dataset)
+    X, y, Xr = get_relevant_images(dataset)
 
-	batchsize = 16
+    batchsize = 16
 
-	if X.ndim == 3:
-		theano_slm = TheanoSLM(
-				in_shape=(batchsize,) + X.shape[1:] + (1,),
-				description=config['desc'])
-	elif X.ndim == 4:
-		theano_slm = TheanoSLM(
-				in_shape=(batchsize,) + X.shape[1:],
-				description=config['desc'])
-	else:
-		raise NotImplementedError()
-	desc = config['desc']
-	interpret_model(desc)
-	
-	if use_theano:
-		slm = theano_slm
-		# -- pre-compile the function to not mess up timing
-		slm.get_theano_fn()
-	else:
-		cthor_sse = {'plugin':'cthor', 'plugin_kwargs':{'variant':'sse'}}
-		cthor = {'plugin':'cthor', 'plugin_kwargs':{}}
-		slm = SequentialLayeredModel(X.shape[1:], desc,
-									 plugin='passthrough',
-									 plugin_kwargs={'plugin_mapping': {
-										 'fbcorr': cthor,
-										  'lnorm' : cthor,
-										  'lpool' : cthor,
-									 }})
+    if X.ndim == 3:
+        theano_slm = TheanoSLM(
+                in_shape=(batchsize,) + X.shape[1:] + (1,),
+                description=config['desc'])
+    elif X.ndim == 4:
+        theano_slm = TheanoSLM(
+                in_shape=(batchsize,) + X.shape[1:],
+                description=config['desc'])
+    else:
+        raise NotImplementedError()
+    desc = config['desc']
+    interpret_model(desc)
+    
+    if use_theano:
+        slm = theano_slm
+        # -- pre-compile the function to not mess up timing
+        slm.get_theano_fn()
+    else:
+        cthor_sse = {'plugin':'cthor', 'plugin_kwargs':{'variant':'sse'}}
+        cthor = {'plugin':'cthor', 'plugin_kwargs':{}}
+        slm = SequentialLayeredModel(X.shape[1:], desc,
+                                     plugin='passthrough',
+                                     plugin_kwargs={'plugin_mapping': {
+                                         'fbcorr': cthor,
+                                          'lnorm' : cthor,
+                                          'lpool' : cthor,
+                                     }})
 
-	feature_shp = (X.shape[0],) + theano_slm.pythor_out_shape
+    feature_shp = (X.shape[0],) + theano_slm.pythor_out_shape
 
-	num_splits = 1
-	performances = []
-	with ExtractedFeatures(X, feature_shp, batchsize, slm,
-			'/tmp/features.dat') as features_fp:
+    num_splits = 1
+    performances = []
+    with ExtractedFeatures(X, feature_shp, batchsize, slm,
+            '/tmp/features.dat') as features_fp:
 
-		n_features = get_num_features(feature_shp, comparison)
-		print(n_features)
+        n_features = get_num_features(feature_shp, comparison)
+        print(n_features)
 
-		for split_id in range(num_splits):
-			with PairFeatures(dataset, 'train_' + str(split_id), Xr,
-					n_features, 'train_feature_pairs.dat',
-					features_fp, comparison, 'train_pairs.dat') as train_Xy:
-				with PairFeatures(dataset, 'test_' + str(split_id),
-						Xr, n_features, 'test_feature_pairs.dat',
-						features_fp, comparison, 'test_pairs.dat') as test_Xy:
-					performances.append(
-							cls.train_classifier(config, ctrl,
-								train_Xy, test_Xy, n_features))
-	performance = np.array(performances).mean()
-	result = dict(loss=performance, status='ok')
-	
+        for split_id in range(num_splits):
+            with PairFeatures(dataset, 'train_' + str(split_id), Xr,
+                    n_features, 'train_feature_pairs.dat',
+                    features_fp, comparison, 'train_pairs.dat') as train_Xy:
+                with PairFeatures(dataset, 'test_' + str(split_id),
+                        Xr, n_features, 'test_feature_pairs.dat',
+                        features_fp, comparison, 'test_pairs.dat') as test_Xy:
+                    performances.append(
+                            cls.train_classifier(config, ctrl,
+                                train_Xy, test_Xy, n_features))
+    performance = np.array(performances).mean()
+    result = dict(loss=performance, status='ok')
+    
     if outfile is not None:
         outfh = open(outfile,'w')
         cPickle.dump(result, outfh)
@@ -427,18 +427,18 @@ class ExtractedFeatures(object):
 
         size = 4 * np.prod(feature_shp)
         print('Total size: %i bytes (%.2f GB)' % (size, size / float(1e9)))
-		memmap = use_memmap(size)	
-		if memmap:
-			print('Creating memmap %s for features of shape %s' % (
-												  filename, str(feature_shp)))
-			features_fp = np.memmap(filename,
-				dtype='float32',
-				mode='w+',
-				shape=feature_shp)
-		else:
-			print('Using memory for features of shape %s' % str(feature_shp)) 
-			features_fp = np.empty(feature_shp,dtype='float32')
-	
+        memmap = use_memmap(size)   
+        if memmap:
+            print('Creating memmap %s for features of shape %s' % (
+                                                  filename, str(feature_shp)))
+            features_fp = np.memmap(filename,
+                dtype='float32',
+                mode='w+',
+                shape=feature_shp)
+        else:
+            print('Using memory for features of shape %s' % str(feature_shp)) 
+            features_fp = np.empty(feature_shp,dtype='float32')
+    
         i = 0
         t0 = time.time()
         while True:
@@ -503,17 +503,17 @@ class PairFeatures(object):
         
         size = 4 * np.prod(pair_shp)
         print('Total size: %i bytes (%.2f GB)' % (size, size / float(1e9)))                            
-		memmap = use_memmap(size)		
-		if memmap:
-			print('get_pair_fp memmap %s for features of shape %s' % (
-												    filename, str(pair_shp)))
-			feature_pairs_fp = np.memmap(filename,
-									dtype='float32',
-									mode='w+',
-									shape=pair_shp)
-		else:
-			print('using memory for features of shape %s' % str(pair_shp))
-			feature_pairs_fp = np.empty(pair_shape, dtype='float32')                                    
+        memmap = use_memmap(size)       
+        if memmap:
+            print('get_pair_fp memmap %s for features of shape %s' % (
+                                                    filename, str(pair_shp)))
+            feature_pairs_fp = np.memmap(filename,
+                                    dtype='float32',
+                                    mode='w+',
+                                    shape=pair_shp)
+        else:
+            print('using memory for features of shape %s' % str(pair_shp))
+            feature_pairs_fp = np.empty(pair_shape, dtype='float32')                                    
                                     
         for (ind,(ai, bi)) in enumerate(zip(Aind, Bind)):
             feature_pairs_fp[ind] = compare(feature_fp[ai],
@@ -523,18 +523,18 @@ class PairFeatures(object):
                 print('get_pair_fp  %i / %i' % (ind, len(Aind)))
 
         if memmap:                
-			print ('flushing memmap')
-			sys.stdout.flush()
-			del feature_pairs_fp
-			self.filename = filename
-			self.features = np.memmap(filename,
-					dtype='float32',
-					mode='r',
-					shape=pair_shp)
-		else:
-		    self.features = feature_pairs_fp
-		    self.filename = ''
-		    
+            print ('flushing memmap')
+            sys.stdout.flush()
+            del feature_pairs_fp
+            self.filename = filename
+            self.features = np.memmap(filename,
+                    dtype='float32',
+                    mode='r',
+                    shape=pair_shp)
+        else:
+            self.features = feature_pairs_fp
+            self.filename = ''
+            
         self.labels = labels
         
     def __enter__(self):
