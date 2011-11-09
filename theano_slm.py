@@ -584,7 +584,7 @@ def get_pythor_safe_description(description):
 
 def get_comparison(config):
     comparison = config.get('comparison', 'concatenate')
-    assert comparison in ['concatenate']
+    assert comparison in ['concatenate', 'add', 'multiply']
     return comparison
 
 
@@ -598,11 +598,19 @@ def get_num_features(shp, comparison):
     """
     if comparison == 'concatenate':
         return 2 * shp[1] * shp[2] * shp[3]
+    elif comparison == 'add':
+        return shp[1] * shp[2] * shp[3]
+    elif comparison == 'multiply':
+        return shp[1] * shp[2] * shp[3]
 
 
 def compare(x, y, comparison):
     if comparison == 'concatenate':
         return np.concatenate([x.flatten(),y.flatten()])
+    elif comparison == 'add':
+        return x.flatten() + y.flatten()
+    elif comparison == 'multiply':
+        return x.flatten() * y.flatten() 
 
 
 def get_relevant_images(dataset, dtype='uint8'):
