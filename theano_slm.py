@@ -264,12 +264,16 @@ class TheanoSLM(object):
             r_shp = np.empty(r_shp)[:, :, ::stride, ::stride].shape
         return r, r_shp
 
-    def process_batch(self, arr_in):
+    def get_theano_fn(self):
         try:
             fn = self._fn
         except AttributeError:
             fn = self._fn = theano.function([self.s_input], self.s_output,
                 allow_input_downcast=True)
+        return fn
+
+    def process_batch(self, arr_in):
+        fn = self.get_theano_fn()
         channel_major_in = arr_in.transpose(0, 3, 1, 2)
         return fn(channel_major_in).transpose(0, 2, 3, 1)
 
@@ -389,28 +393,33 @@ class LFWBandit(object):
         
         if use_theano:
             slm = theano_slm
+            # -- pre-compile the function to not mess up timing
+            slm.get_theano_fn()
         else:
+            cthor_sse = {'plugin':'cthor', 'plugin_kwargs':{'variant':'sse'}}
+            cthor = {'plugin':'cthor', 'plugin_kwargs':{}}
             slm = SequentialLayeredModel(X.shape[1:], desc,
                                          plugin='passthrough',
-                                         plugin_kwargs={'plugin_mapping':{'fbcorr': {'plugin':'cthor','plugin_kwargs':{'variant':'sse'}},
-                                                        'lnorm' : {'plugin':'cthor', 'plugin_kwargs':{'variant':'sse'}},
-                                                        'lpool' : {'plugin':'cthor', 'plugin_kwargs':{'variant':'sse'}}
-                                                       }})
+                                         plugin_kwargs={'plugin_mapping': {
+                                             'fbcorr': cthor,
+                                              'lnorm' : cthor,
+                                              'lpool' : cthor,
+                                         }})
 
 
         outshape = theano_slm.pythor_out_shape
 
         feature_shp = (X.shape[0],) + outshape
-        if config.get('skip_features', False):
+        if config.get('compute_features', True):
+            features_fp = get_features_fp(X, feature_shp, batchsize, slm,
+                                          '/tmp/features.dat')
+        else:
             features_fp = np.memmap(
-                    os.path.join(config['workdir'], 'features.dat'),
+                    '/tmp/features.dat',
                     dtype='float32',
                     mode='r',
                     shape=feature_shp)
-        else:
-            features_fp = get_features_fp(X, feature_shp, batchsize, slm,
-                                          '/tmp/features.dat')
-
+                    
         n_features = get_num_features(feature_shp, comparison)
         print(n_features)
 
@@ -438,7 +447,7 @@ class LFWBandit(object):
             def normalize(XX):
                 return (XX - train_mean) / np.maximum(train_std, 1e-6)
 
-            clas = fit_w_early_stopping(
+            clas, earlystopper = fit_w_early_stopping(
                     model=asgd.naive_asgd.NaiveBinaryASGD(
                         n_features=n_features,
                         l2_regularization=0,
@@ -451,10 +460,7 @@ class LFWBandit(object):
                     batchsize=10,                # unit: examples
                     validation_interval=50)      # unit: batches
 
-            prediction = clas.predict(test_feature_pairs_fp)
-
-            performance = (prediction != ctest).astype(np.float).mean()
-            performances.append(performance)
+            performances.append(earlystopper.best_y)
 
             test_feature_pairs_fp.close()
             os.remove(test_features_pairs_fp.filename)

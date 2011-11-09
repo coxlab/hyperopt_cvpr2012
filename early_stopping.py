@@ -67,7 +67,7 @@ def fit_w_early_stopping(model, es,
         es.step(vscore, vscore_std)
         print es, 'margin_avg', model.margin_avg
         print (model.asgd_weights ** 2).sum()
-        if es.cur_time > es.warmup and es.cur_time == es.best_time:
+        if es.cur_time == es.best_time:
             best_model = copy.deepcopy(model)
 
         # -- training loop
@@ -80,6 +80,8 @@ def fit_w_early_stopping(model, es,
             model.partial_fit(xi, yi)
             tpos += batchsize
 
+    if best_model is None:
+        best_model = model
 
-    return model if best_model is None else best_model
+    return best_model, es
 
