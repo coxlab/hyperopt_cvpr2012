@@ -110,7 +110,8 @@ layers = [[('lnorm', lnorm)],
          ]  
 
 
-config = {'desc' : layers}
+config = {'desc' : layers,
+          'comparison' : choice(['concatenate', 'add', 'multiply'])}
 
           
           
@@ -183,4 +184,5 @@ layers_h = [[('lnorm', lnorm)],
            ]  
            
 
-config_h = {'desc' : layers_h}
+config_h = {'desc' : layers_h,
+            'comparison' : choice(['concatenate', 'add', 'multiply'])}
