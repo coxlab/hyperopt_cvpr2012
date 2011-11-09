@@ -287,6 +287,36 @@ class TheanoSLM(object):
             return rval
 
 
+def train_classifier(config, ctrl, train_Xy, test_Xy, n_features):
+    print 'training classifier'
+    train_X, train_y = train_Xy
+    test_X, test_y = test_Xy
+    train_mean = train_X.mean(axis=0)
+    train_std = train_X.std(axis=0)
+
+    # -- change labels to -1, +1
+    assert set(train_y) == set([0, 1])
+    train_y = train_y * 2 - 1
+    test_y = test_y * 2 - 1
+
+    def normalize(XX):
+        return (XX - train_mean) / np.maximum(train_std, 1e-6)
+
+    model, earlystopper = fit_w_early_stopping(
+            model=asgd.naive_asgd.NaiveBinaryASGD(
+                n_features=n_features,
+                l2_regularization=0,
+                sgd_step_size0=1e-3),
+            es=EarlyStopping(warmup=20), # unit: validation intervals
+            train_X=normalize(train_X),
+            train_y=train_y,
+            validation_X=normalize(test_X),
+            validation_y=test_y,
+            batchsize=10,                # unit: examples
+            validation_interval=100)     # unit: batches
+    return earlystopper.best_y
+
+
 class LFWBandit(gb.GensonBandit):
     def __init__(self):
         source_string = repr(cvpr_params.config).replace("'",'"')
@@ -296,36 +326,6 @@ class LFWBandit(gb.GensonBandit):
     def evaluate(cls, config, ctrl, use_theano=True):
         result = get_performance(None, config, use_theano)
         return result
-
-    @classmethod
-    def train_classifier(cls, config, ctrl, train_Xy, test_Xy, n_features):
-        print 'training classifier'
-        train_X, train_y = train_Xy
-        test_X, test_y = test_Xy
-        train_mean = train_X.mean(axis=0)
-        train_std = train_X.std(axis=0)
-
-        # -- change labels to -1, +1
-        assert set(train_y) == set([0, 1])
-        train_y = train_y * 2 - 1
-        test_y = test_y * 2 - 1
-
-        def normalize(XX):
-            return (XX - train_mean) / np.maximum(train_std, 1e-6)
-
-        model, earlystopper = fit_w_early_stopping(
-                model=asgd.naive_asgd.NaiveBinaryASGD(
-                    n_features=n_features,
-                    l2_regularization=0,
-                    sgd_step_size0=1e-3),
-                es=EarlyStopping(warmup=20), # unit: validation intervals
-                train_X=normalize(train_X),
-                train_y=train_y,
-                validation_X=normalize(test_X),
-                validation_y=test_y,
-                batchsize=10,                # unit: examples
-                validation_interval=100)     # unit: batches
-        return earlystopper.best_y
 
 
 class LFWBanditSGE(LFWBandit):
