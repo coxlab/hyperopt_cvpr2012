@@ -339,6 +339,8 @@ class LFWBanditSGE(LFWBandit):
 def get_performance(outfile, config, use_theano=True):
     import skdata.lfw
 
+    c_hash = get_config_string(config)
+
     comparison = get_comparison(config)
 
     dataset = skdata.lfw.Aligned()
@@ -379,19 +381,22 @@ def get_performance(outfile, config, use_theano=True):
 
     num_splits = 1
     performances = []
+    feature_file_name = 'features_' + c_hash + '.dat'
+    train_pairs_filename = 'train_pairs_' + c_hash + '.dat'
+    test_pairs_filename = 'test_pairs_' + c_hash + '.dat' 
     with ExtractedFeatures(X, feature_shp, batchsize, slm,
-            '/tmp/features.dat') as features_fp:
+            feature_file_name) as features_fp:
 
         n_features = get_num_features(feature_shp, comparison)
         print(n_features)
 
         for split_id in range(num_splits):
             with PairFeatures(dataset, 'train_' + str(split_id), Xr,
-                    n_features, 'train_feature_pairs.dat',
-                    features_fp, comparison, 'train_pairs.dat') as train_Xy:
+                    n_features, features_fp, comparison,
+                              train_pairs_filename) as train_Xy:
                 with PairFeatures(dataset, 'test_' + str(split_id),
-                        Xr, n_features, 'test_feature_pairs.dat',
-                        features_fp, comparison, 'test_pairs.dat') as test_Xy:
+                        Xr, n_features, features_fp, comparison,
+                                  test_pairs_filename) as test_Xy:
                     performances.append(
                             cls.train_classifier(config, ctrl,
                                 train_Xy, test_Xy, n_features))
@@ -449,10 +454,13 @@ class ExtractedFeatures(object):
             else:
                 xi = np.asarray(X[i:i+batchsize])
                 done = False
-            #feature_batch = slm.process_batch(xi.transpose(0, 3, 1, 2))
+            t1 = time.time()    
             feature_batch = slm.process_batch(xi)
+            print('compute: ',time.time()-t1)
+            t2 = time.time()
             delta = max(0,i + batchsize - len(X))
             features_fp[i:i+batchsize-delta] = feature_batch[delta:]
+            print('write: ',time.time()-t2)
             if done:
                 break
 
@@ -491,8 +499,8 @@ class PairFeatures(object):
         self.args = args
         self.kwargs = kwargs
 
-    def work(self, dataset, split, X, n_features, name,
-            feature_fp, comparison, filename):
+    def work(self, dataset, split, X, n_features,
+             feature_fp, comparison, filename):
         A, B, labels = dataset.raw_verification_task_resplit(split=split)
         Ar = np.array([os.path.split(ar)[-1] for ar in A])
         Br = np.array([os.path.split(br)[-1] for br in B])
@@ -579,6 +587,9 @@ def get_comparison(config):
     assert comparison in ['concatenate']
     return comparison
 
+
+def get_config_string(configs):
+    return hashlib.sha1(repr(configs)).hexdigest()
 
 def get_num_features(shp, comparison):
     """
