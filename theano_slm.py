@@ -475,7 +475,7 @@ class LFWBandit(object):
         return dict(loss=performance, status='ok')
 
 
-def get_features_fp(X, feature_shp, batchsize, slm, filename, memmap=False):
+def get_features_fp(X, feature_shp, batchsize, slm, filename, memmap=True):
     """
     X - 4-tensor of images
     feature_shp - 4-tensor of output feature shape (len matches X)
@@ -508,10 +508,13 @@ def get_features_fp(X, feature_shp, batchsize, slm, filename, memmap=False):
         else:
             xi = np.asarray(X[i:i+batchsize])
             done = False
-        #feature_batch = slm.process_batch(xi.transpose(0, 3, 1, 2))
+        t1 = time.time()
         feature_batch = slm.process_batch(xi)
+        print('compute',time.time()-t1)
+        t2 = time.time()
         delta = max(0,i + batchsize - len(X))
         features_fp[i:i+batchsize-delta] = feature_batch[delta:]
+        print('write',time.time()-t2)
         if done:
             break
 
