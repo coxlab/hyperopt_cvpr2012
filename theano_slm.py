@@ -61,6 +61,7 @@ class TheanoSLM(object):
 
         assert len(self.theano_in_shape) == 4
         print 'TheanoSLM.theano_in_shape', self.theano_in_shape
+        print 'Description', description
 
         # This guy is used to generate filterbanks
         pythor_safe_description = get_pythor_safe_description(description)
@@ -342,7 +343,71 @@ class LFWBanditSGE(LFWBandit):
                      opstring=opstring)
         status = sge_utils.wait_and_get_statuses([jobid])
         return cPickle.loads(open(outfile).read())
-        
+
+
+class LFWBanditEZSearch(gb.GensonBandit):
+    """
+    This Bandit has the same evaluate function as LFWBandit,
+    but the template is setup for more efficient search.
+    """
+    def __init__(self):
+        from cvpr_params import (
+                choice, uniform, gaussian, lognormal, ref, null, qlognormal)
+        lnorm = {'kwargs':{'inker_shape' : choice([(3,3),(5,5),(7,7),(9,9)]),
+                 'outker_shape' : ref('this','inker_shape'),
+                 'remove_mean' : choice([0,1]),
+                 'stretch' : lognormal(0, 1),
+                 'threshold' : lognormal(0, 1)
+                 }}
+        lpool = dict(
+                kwargs=dict(
+                    stride=2,
+                    ker_shape=choice([(3,3),(5,5),(7,7),(9,9)]),
+                    order=choice([1, uniform(1, 10)])))
+        activ =  {'min_out' : choice([null,0]), 'max_out' : choice([1,null])}
+
+        filter1 = dict(
+                initialize=dict(
+                    filter_shape=choice([(3,3),(5,5),(7,7),(9,9)]),
+                    n_filters=qlognormal(np.log(32), 1, round=16),
+                    generate=(
+                        'random:uniform',
+                        {'rseed': choice([11, 12, 13, 14, 15])})),
+                kwargs=activ)
+
+        filter2 = dict(
+                initialize=dict(
+                    filter_shape=choice([(3, 3), (5, 5), (7, 7), (9, 9)]),
+                    n_filters=qlognormal(np.log(32), 1, round=16),
+                    generate=(
+                        'random:uniform',
+                        {'rseed': choice([21, 22, 23, 24, 25])})),
+                kwargs=activ)
+
+        filter3 = dict(
+                initialize=dict(
+                    filter_shape=choice([(3, 3), (5, 5), (7, 7), (9, 9)]),
+                    n_filters=qlognormal(np.log(32), 1, round=16),
+                    generate=(
+                        'random:uniform',
+                        {'rseed': choice([31, 32, 33, 34, 35])})),
+                kwargs=activ)
+
+        layers = [[('lnorm', lnorm)],
+                  [('fbcorr', filter1), ('lpool', lpool), ('lnorm', lnorm)],
+                  [('fbcorr', filter2), ('lpool', lpool), ('lnorm', lnorm)],
+                  [('fbcorr', filter3), ('lpool', lpool), ('lnorm', lnorm)]]
+
+        comparison = ['mult', 'absdiff', 'sqrtabsdiff', 'sqdiff']
+
+        config = {'desc' : layers, 'comparison' : comparison}
+        source_string = repr(config).replace("'",'"')
+        gb.GensonBandit.__init__(self, source_string=source_string)
+
+    @classmethod
+    def evaluate(cls, config, ctrl, use_theano=True):
+        result = get_performance(None, config, use_theano)
+        return result
 
 
 def get_performance(outfile, config, use_theano=True):
@@ -411,11 +476,16 @@ def get_performance(outfile, config, use_theano=True):
                                       test_pairs_filename) as test_Xy:
                         perf.append(train_classifier(config,
                                     train_Xy, test_Xy, n_features))
+                        n_test_examples = len(test_Xy[0])
             performance_comp[comparison] = float(np.array(perf).mean())
-            
+
     performance = float(np.array(performance_comp.values()).min())
-    result = dict(loss=performance, performances=performance_comp, status='ok')
-    
+    result = dict(
+            loss=performance,
+            loss_variance=performance * (1 - performance) / n_test_examples,
+            performances=performance_comp,
+            status='ok')
+
     if outfile is not None:
         outfh = open(outfile,'w')
         cPickle.dump(result, outfh)
