@@ -264,13 +264,16 @@ class TheanoSLM(object):
             order=1,
             stride=1,
             mode='valid'):
-        #XXX: respect kwargs and do correct math
 
         if order == 1:
             r, r_shp = self.boxconv(x, x_shp, ker_shape)
-        else:
+        elif order == int(order):
             r, r_shp = self.boxconv(x ** order, x_shp, ker_shape)
             r = tensor.maximum(r, 0) ** (1.0 / order)
+        else:
+            r, r_shp = self.boxconv(abs(x) ** order, x_shp, ker_shape)
+            r = tensor.maximum(r, 0) ** (1.0 / order)
+
         if stride > 1:
             r = r[:, :, ::stride, ::stride]
             # intdiv is tricky... so just use numpy
@@ -384,7 +387,7 @@ class LFWBanditEZSearch(gb.GensonBandit):
                 kwargs=dict(
                     stride=2,
                     ker_shape=choice([(3,3),(5,5),(7,7),(9,9)]),
-                    order=choice([1, uniform(1, 10)])))
+                    order=choice([1, 2, 10, uniform(1, 10)])))
         activ =  {'min_out' : choice([null,0]), 'max_out' : choice([1,null])}
 
         filter1 = dict(
@@ -536,7 +539,7 @@ class ExtractedFeatures(object):
 
         size = 4 * np.prod(feature_shp)
         print('Total size: %i bytes (%.2f GB)' % (size, size / float(1e9)))
-        memmap = use_memmap(size)   
+        memmap = use_memmap(size)
         if memmap:
             print('Creating memmap %s for features of shape %s' % (
                                                   filename, str(feature_shp)))
@@ -547,7 +550,7 @@ class ExtractedFeatures(object):
         else:
             print('Using memory for features of shape %s' % str(feature_shp)) 
             features_fp = np.empty(feature_shp,dtype='float32')
-    
+
         if TEST:
             print('TESTING')
 
@@ -561,18 +564,21 @@ class ExtractedFeatures(object):
             else:
                 xi = np.asarray(X[i:i+batchsize])
                 done = False
-            t1 = time.time()    
+            t1 = time.time()
             feature_batch = slm.process_batch(xi)
-            print('compute: ',time.time()-t1)
+            if TEST:
+                print('compute: ', time.time() - t1)
             t2 = time.time()
-            delta = max(0,i + batchsize - len(X))
+            delta = max(0, i + batchsize - len(X))
+            assert np.all(np.isfinite(feature_batch))
             features_fp[i:i+batchsize-delta] = feature_batch[delta:]
-            print('write: ',time.time()-t2)
+            if TEST:
+                print('write: ', time.time() - t2)
             if done:
                 break
 
             i += batchsize
-            if (i // batchsize) % 10 == 0:
+            if (i // batchsize) % 50 == 0:
                 t_cur = time.time() - t0
                 t_per_image = (time.time() - t0) / i
                 t_tot = t_per_image * X.shape[0]
