@@ -6,24 +6,38 @@ from hyperopt_cvpr2012.theano_slm import LFWBanditEZSearch
 from hyperopt_cvpr2012 import cvpr_params
 
 def run_lfw(seed, use_theano=True, compute_features=True):
-    template = hyperopt.gdist.gDist(
-            repr(cvpr_params.config).replace("'",'"'))
-    config = template.sample(seed)
     bandit = LFWBandit()
+    template = bandit.template
+    config = template.sample(seed)
     config['cvpr_params_seed'] = seed
     config['compute_features'] = compute_features
     result = bandit.evaluate(config, None, use_theano=use_theano)
     print ('FINAL result for seed=%i' % seed), result
 
-def test_many_seeds(start=0, stop=100):
+def run_lfwh(seed, use_theano=True, compute_features=True):
+    bandit = LFWBanditHetero()
+    template = bandit.template
+    config = template.sample(seed)
+    config['cvpr_params_seed'] = seed
+    config['compute_features'] = compute_features
+    result = bandit.evaluate(config, None, use_theano=use_theano)
+    print ('FINAL result for seed=%i' % seed), result
+
+def many_seeds(func, start=0, stop=100):
     for seed in range(start, stop):
         try:
-            result = run_lfw(seed)
+            result = func(seed)
         except InvalidDescription:
             print 'INVALID SEED', seed
         sys.stdout.flush()
         sys.stderr.flush()
     assert 0  # make sure nosetests prints everything out
+
+def test_many_seeds(start=0, stop=100):
+    many_seeds(run_lfw, start=start, stop=stop)
+    
+def test_many_seeds_h(start=0, stop=100):
+    many_seeds(run_lfwh, start=start, stop=stop)
 
 def test_many_more_seeds():
     return test_many_seeds(1000, 1100)

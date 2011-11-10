@@ -36,6 +36,9 @@ import cvpr_params
 import comparisons as comp_module
 from early_stopping import fit_w_early_stopping, EarlyStopping
 
+
+TEST = False
+
 class TheanoSLM(object):
     """
     SequentialLayeredModel clone implemented with Theano
@@ -324,15 +327,20 @@ def train_classifier(config, train_Xy, test_Xy, n_features):
 DEFAULT_COMPARISONS = ['mult', 'absdiff', 'sqrtabsdiff', 'sqdiff']
 
 class LFWBandit(gb.GensonBandit):
+    source_string = cvpr_params.string(cvpr_params.config)
+    
     def __init__(self):
-        source_string = repr(cvpr_params.config).replace("'",'"')
-        super(LFWBandit, self).__init__(source_string=source_string)
+        super(LFWBandit, self).__init__(source_string=self.source_string)
 
     @classmethod
     def evaluate(cls, config, ctrl, use_theano=True):
         result = get_performance(None, config, use_theano)
         return result
 
+
+class LFWBanditHetero(LFWBandit):
+    source_string = cvpr_params.string(cvpr_params.config_h)
+      
 
 class LFWBanditSGE(LFWBandit):
     @classmethod
@@ -425,16 +433,16 @@ def get_performance(outfile, config, use_theano=True):
 
     batchsize = 4
 
-    desc = config['desc']
+    desc = copy.deepcopy(config['desc'])
     interpret_model(desc)
     if X.ndim == 3:
         theano_slm = TheanoSLM(
                 in_shape=(batchsize,) + X.shape[1:] + (1,),
-                description=config['desc'])
+                description=desc)
     elif X.ndim == 4:
         theano_slm = TheanoSLM(
                 in_shape=(batchsize,) + X.shape[1:],
-                description=config['desc'])
+                description=desc)
     else:
         raise NotImplementedError()
 
@@ -527,9 +535,12 @@ class ExtractedFeatures(object):
             print('Using memory for features of shape %s' % str(feature_shp)) 
             features_fp = np.empty(feature_shp,dtype='float32')
     
+        if TEST:
+            print('TESTING')
+
         i = 0
         t0 = time.time()
-        while True:
+        while not TEST or i < 10:
             if i + batchsize >= len(X):
                 assert i < len(X)
                 xi = np.asarray(X[-batchsize:])
@@ -652,7 +663,7 @@ def get_into_shape(x):
     if hasattr(x,'__iter__'):
         x = np.array(x)
         assert x.ndim == 1
-        x = x.reshape((1,len(x)))
+        x = x[np.newaxis, :, np.newaxis, np.newaxis]
     return x
 
 def get_pythor_safe_description(description):
@@ -762,7 +773,7 @@ def interpret_activ(filter, activ):
         values = vals['values']
         num = n_filters / len(values)
         delta = n_filters - len(values)*num
-        activ_vec = flatten([[v]*num for v in values] + [[values[-1]*delta]])
+        activ_vec = flatten([[v]*num for v in values] + [[values[-1]]*delta])
     else:
         raise ValueError, 'not recognized'
     
