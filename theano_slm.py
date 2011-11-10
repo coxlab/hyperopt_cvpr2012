@@ -398,6 +398,7 @@ def get_performance(outfile, config, use_theano=True):
     with ExtractedFeatures(X, feature_shp, batchsize, slm,
             feature_file_name) as features_fp:
         for comparison in comparisons:
+            print('Doing comparison %s' % comparison)
             perf = []
             comparison_obj = getattr(comp_module,comparison)
             n_features = comparison_obj.get_num_features(feature_shp)
