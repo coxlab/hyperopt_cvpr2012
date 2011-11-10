@@ -365,6 +365,11 @@ class LFWBanditHetero2(LFWBandit):
 class LFWBanditHetero3(LFWBandit):
     source_string = cvpr_params.string(cvpr_params.config_h3)         
 
+
+class LFWBanditHetero4(LFWBandit):
+    source_string = cvpr_params.string(cvpr_params.config_h4)  
+
+
 class LFWBanditSGE(LFWBandit):
     @classmethod
     def evaluate(cls, config, ctrl, use_theano=True):
@@ -814,4 +819,22 @@ def interpret_model(desc):
                 if hasattr(kw.get('min_out'),'keys'):
                     kw['min_out'] = interpret_activ(opparams, kw['min_out'])
                 if hasattr(kw.get('max_out'),'keys'):
-                    kw['max_out'] = interpret_activ(opparams, kw['max_out'])                    
+                    kw['max_out'] = interpret_activ(opparams, kw['max_out'])
+            if opname in ['fbcorr', 'fbcorr_h']:
+                init = opparams['initialize']
+                if init.has_key('filter_size'):
+                    sz = init.pop('filter_size')
+                    init['filter_shape'] = (2*sz+1, 2*sz+1)
+            elif opname in ['lnorm', 'lnorm_h']:
+                init = opparams['initialize']
+                if init.has_key('inker_size'):
+                    sz = init.pop('inker_size')
+                    init['inker_shape'] = (2*sz+1, 2*sz+1)            
+                if init.has_key('outker_size'):
+                    sz = init.pop('outker_size')
+                    init['outker_shape'] = (2*sz+1, 2*sz+1)  
+            elif opname in ['lpool', 'lpool_h']:
+                init = opparams['initialize']
+                if init.has_key('ker_size'):
+                    sz = init.pop('ker_size')
+                    init['ker_shape'] = (2*sz+1, 2*sz+1)                 
