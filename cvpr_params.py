@@ -1,5 +1,8 @@
 import copy
 
+def string(s): 
+    return repr(s).replace("'",'"')
+
 ##Plain vanilla params  -- from FG11 paper
 
 class Null(object):
@@ -114,11 +117,7 @@ comparison = ['mult', 'absdiff', 'sqrtabsdiff', 'sqdiff']
 
 config = {'desc' : layers, 'comparison' : comparison}
 
-          
-          
-    
-### with activations -- replace activ in each case with:
-###TODO:  get this in the right format for pythor
+
 activ_uniform = {'min_out' : choice([null, {'generate' : ('random:uniform',
                                                           {'rseed':42,
                                                            'mean':uniform(-.2,.2),
