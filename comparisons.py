@@ -1,3 +1,5 @@
+import numpy as np
+
 class Comparison(object):
     def get_num_features(self,shp):
         return shp[1] * shp[2] * shp[3]
