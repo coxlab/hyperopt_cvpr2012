@@ -357,6 +357,7 @@ class LFWBanditHetero(LFWBandit):
 
 class LFWBanditHetero2(LFWBandit):
     source_string = cvpr_params.string(cvpr_params.config_h2)      
+    
 
 class LFWBanditSGE(LFWBandit):
     @classmethod
