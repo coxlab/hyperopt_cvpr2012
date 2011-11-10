@@ -154,6 +154,7 @@ class TheanoSLM(object):
         """
         channels: sum over channels (T/F)
         """
+        kershp = tuple(kershp)
         if channels:
             rshp = (   x_shp[0],
                         1,
@@ -306,6 +307,7 @@ def train_classifier(config, train_Xy, test_Xy, n_features):
     model, earlystopper = fit_w_early_stopping(
             model=asgd.naive_asgd.NaiveBinaryASGD(
                 n_features=n_features,
+                l2_regularization=0,
                 sgd_step_size0=1e-3),
             es=EarlyStopping(warmup=20), # unit: validation intervals
             train_X=normalize(train_X),
@@ -339,7 +341,6 @@ class LFWBanditSGE(LFWBandit):
         return cPickle.loads(open(outfile).read())
         
         
-
 def get_performance(outfile, config, use_theano=True):
     import skdata.lfw
 
@@ -413,7 +414,7 @@ def get_performance(outfile, config, use_theano=True):
 
 
 def use_memmap(size):
-    if size < 5e8:
+    if size < 3e8:
         memmap = False
     else:
         memmap = True
@@ -689,7 +690,7 @@ def flatten(x):
     return list(itertools.chain(*x))
     
     
-#####model stuff
+#####heterogenous model stuff
 def interpret_activ(filter, activ):
     n_filters = filter['initialize']['n_filters']
     generator = activ['generate'][0].split(':')
