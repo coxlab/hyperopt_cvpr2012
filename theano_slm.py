@@ -323,15 +323,20 @@ def train_classifier(config, train_Xy, test_Xy, n_features):
 DEFAULT_COMPARISONS = ['mult', 'absdiff', 'sqrtabsdiff', 'sqdiff']
 
 class LFWBandit(gb.GensonBandit):
+    source_string = repr(cvpr_params.config).replace("'",'"')
+    
     def __init__(self):
-        source_string = repr(cvpr_params.config).replace("'",'"')
-        super(LFWBandit, self).__init__(source_string=source_string)
+        super(LFWBandit, self).__init__(source_string=self.source_string)
 
     @classmethod
     def evaluate(cls, config, ctrl, use_theano=True):
         result = get_performance(None, config, use_theano)
         return result
 
+
+class LFWBanditHetero(gb.GensonBandit):
+    source_string = repr(cvpr_params.config_h).replace("'",'"')
+      
 
 class LFWBanditSGE(LFWBandit):
     @classmethod
