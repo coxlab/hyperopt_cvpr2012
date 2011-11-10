@@ -10,6 +10,7 @@ import cPickle
 
 import Image
 import numpy as np
+from bson import BSON, SON
 
 import theano
 import theano.tensor as tensor
@@ -36,6 +37,18 @@ import cvpr_params
 import comparisons as comp_module
 from early_stopping import fit_w_early_stopping, EarlyStopping
 
+
+def son_to_py(son):
+    """ turn son keys (unicode) into str
+    """
+    if isinstance(son, SON):
+        return dict([(str(k), son_to_py(v)) for k, v in son.items()])
+    elif isinstance(son, list):
+        return [son_to_py(s) for s in son]
+    elif isinstance(son, basestring):
+        return str(son)
+    else:
+        return son
 
 TEST = False
 
@@ -64,7 +77,7 @@ class TheanoSLM(object):
 
         assert len(self.theano_in_shape) == 4
         print 'TheanoSLM.theano_in_shape', self.theano_in_shape
-        print 'Description', description
+        print 'TheanoSLM Description', description
 
         # This guy is used to generate filterbanks
         pythor_safe_description = get_pythor_safe_description(description)
@@ -94,7 +107,7 @@ class TheanoSLM(object):
                             op_params.get('kwargs', {}),
                             op_params.get('initialize', {}))
                 x, x_shp = init_fn(x, x_shp, **_D)
-                print 'added layer', op_name, 'shape', x_shp
+                print 'TheanoSLM added layer', op_name, 'shape', x_shp
 
         if 0 == np.prod(x_shp):
             raise InvalidDescription()
@@ -103,13 +116,13 @@ class TheanoSLM(object):
         self.pythor_out_shape = x_shp[2], x_shp[3], x_shp[1]
         self.s_output = x
 
-    def init_fbcorr_h(self, x, x_shp, **kwargs):      
+    def init_fbcorr_h(self, x, x_shp, **kwargs):
         min_out = kwargs.get('min_out', fbcorr_.DEFAULT_MIN_OUT)
         max_out = kwargs.get('max_out', fbcorr_.DEFAULT_MAX_OUT)
         kwargs['max_out'] = get_into_shape(max_out)
-        kwargs['min_out'] = get_into_shape(min_out)       
+        kwargs['min_out'] = get_into_shape(min_out)
         return self.init_fbcorr(x, x_shp, **kwargs)
-            
+
     def init_fbcorr(self, x, x_shp, n_filters,
             filter_shape,
             min_out=fbcorr_.DEFAULT_MIN_OUT,
@@ -323,24 +336,24 @@ def train_classifier(config, train_Xy, test_Xy, n_features):
     return earlystopper.best_y
 
 
-        
 DEFAULT_COMPARISONS = ['mult', 'absdiff', 'sqrtabsdiff', 'sqdiff']
+
 
 class LFWBandit(gb.GensonBandit):
     source_string = cvpr_params.string(cvpr_params.config)
-    
+
     def __init__(self):
         super(LFWBandit, self).__init__(source_string=self.source_string)
 
     @classmethod
     def evaluate(cls, config, ctrl, use_theano=True):
-        result = get_performance(None, config, use_theano)
+        result = get_performance(None, son_to_py(config), use_theano)
         return result
 
 
 class LFWBanditHetero(LFWBandit):
     source_string = cvpr_params.string(cvpr_params.config_h)
-      
+
 
 class LFWBanditSGE(LFWBandit):
     @classmethod
@@ -414,7 +427,7 @@ class LFWBanditEZSearch(gb.GensonBandit):
 
     @classmethod
     def evaluate(cls, config, ctrl, use_theano=True):
-        result = get_performance(None, config, use_theano)
+        result = get_performance(None, son_to_py(config), use_theano)
         return result
 
 
