@@ -193,7 +193,7 @@ layers_h = [[('lnorm', lnorm)],
 config_h = {'desc' : layers_h, 'comparison' : comparison}
 
 
-activ_uniform_2 = {'min_out' : choice([null, {'generate' : ('random:uniform',
+activ_uniform2 = {'min_out' : choice([null, {'generate' : ('random:uniform',
                                                            {'rseed':42,
                                                            'mean':uniform(-.5,.1),
                                                            'delta':uniform(0,.2)}),
