@@ -340,12 +340,17 @@ class LFWBanditSGE(LFWBandit):
         return cPickle.loads(open(outfile).read())
         
         
+DEFAULT_COMPARISONS = ['mult', 'absdiff', 'sqrtabsdiff', 'sqdiff']
+import comparisons as comp_module
+
 def get_performance(outfile, config, use_theano=True):
     import skdata.lfw
 
     c_hash = get_config_string(config)
 
-    comparison = get_comparison(config)
+    comparisons = config.get('comparisons',DEFAULT_COMPARISONS)
+    
+    assert all([hasattr(comp_module,comparison) for comparison in comparisons])
 
     dataset = skdata.lfw.Aligned()
 
@@ -384,26 +389,29 @@ def get_performance(outfile, config, use_theano=True):
     feature_shp = (X.shape[0],) + theano_slm.pythor_out_shape
 
     num_splits = 1
-    performances = []
+    performance_comp = {}
     feature_file_name = 'features_' + c_hash + '.dat'
     train_pairs_filename = 'train_pairs_' + c_hash + '.dat'
     test_pairs_filename = 'test_pairs_' + c_hash + '.dat' 
     with ExtractedFeatures(X, feature_shp, batchsize, slm,
             feature_file_name) as features_fp:
-
-        n_features = get_num_features(feature_shp, comparison)
-
-        for split_id in range(num_splits):
-            with PairFeatures(dataset, 'train_' + str(split_id), Xr,
-                    n_features, features_fp, comparison,
-                              train_pairs_filename) as train_Xy:
-                with PairFeatures(dataset, 'test_' + str(split_id),
-                        Xr, n_features, features_fp, comparison,
-                                  test_pairs_filename) as test_Xy:
-                    performances.append(train_classifier(config,
-                                train_Xy, test_Xy, n_features))
-    performance = np.array(performances).mean()
-    result = dict(loss=performance, status='ok')
+        for comparison in comparisons:
+            perf = []
+            comparison_obj = getattr(comp_module,comparison)
+            n_features = comparison_obj.get_num_features(feature_shp)
+            for split_id in range(num_splits):
+                with PairFeatures(dataset, 'train_' + str(split_id), Xr,
+                        n_features, features_fp, comparison_obj,
+                                  train_pairs_filename) as train_Xy:
+                    with PairFeatures(dataset, 'test_' + str(split_id),
+                            Xr, n_features, features_fp, comparison_obj,
+                                      test_pairs_filename) as test_Xy:
+                        perf.append(train_classifier(config,
+                                    train_Xy, test_Xy, n_features))
+            performance_comp[comparison] = float(np.array(perf).mean())
+            
+    performance = float(np.array(performance_comp.values()).min())
+    result = dict(loss=performance, performances=performance_comp, status='ok')
     
     if outfile is not None:
         outfh = open(outfile,'w')
@@ -502,7 +510,7 @@ class PairFeatures(object):
         self.kwargs = kwargs
 
     def work(self, dataset, split, X, n_features,
-             feature_fp, comparison, filename):
+             feature_fp, comparison_obj, filename):
         A, B, labels = dataset.raw_verification_task_resplit(split=split)
         Ar = np.array([os.path.split(ar)[-1] for ar in A])
         Br = np.array([os.path.split(br)[-1] for br in B])
@@ -524,11 +532,10 @@ class PairFeatures(object):
         else:
             print('using memory for features of shape %s' % str(pair_shp))
             feature_pairs_fp = np.empty(pair_shp, dtype='float32')                                    
-                                    
+
         for (ind,(ai, bi)) in enumerate(zip(Aind, Bind)):
-            feature_pairs_fp[ind] = compare(feature_fp[ai],
-                                            feature_fp[bi],
-                                            comparison)
+            feature_pairs_fp[ind] = comparison_obj(feature_fp[ai],
+                                                   feature_fp[bi])
             if ind % 100 == 0:
                 print('get_pair_fp  %i / %i' % (ind, len(Aind)))
 
@@ -584,47 +591,10 @@ def get_pythor_safe_description(description):
                 layer_desc[op_idx] = (newname,op_params)
     return description
 
-def get_comparison(config):
-    comparison = config.get('comparison', 'concatenate')
-    assert comparison in ['concatenate', 'add', 'sub', 'multiply', 'subsq']
-    return comparison
-
+    
 
 def get_config_string(configs):
     return hashlib.sha1(repr(configs)).hexdigest()
-
-def get_num_features(shp, comparison):
-    """
-    Given image features of size shp, how long many comparison features will
-    there be?
-    """
-    if comparison == 'concatenate':
-        return 2 * shp[1] * shp[2] * shp[3]
-    elif comparison == 'add':
-        return shp[1] * shp[2] * shp[3]
-    elif comparison == 'sub':
-        return shp[1] * shp[2] * shp[3]
-    elif comparison == 'multiply':
-        return shp[1] * shp[2] * shp[3]
-    elif comparison == 'subsq':
-        return shp[1] * shp[2] * shp[3]
-    else:
-        raise ValueError(comparison)
-
-
-def compare(x, y, comparison):
-    if comparison == 'concatenate':
-        return np.concatenate([x.flatten(),y.flatten()])
-    elif comparison == 'add':
-        return x.flatten() + y.flatten()
-    elif comparison == 'sub':
-        return x.flatten() - y.flatten()
-    elif comparison == 'multiply':
-        return x.flatten() * y.flatten()
-    elif comparison == 'subsq':
-        return (x.flatten() - y.flatten()) ** 2
-    else:
-        raise ValueError(comparison)
 
 
 def get_relevant_images(dataset, dtype='uint8'):

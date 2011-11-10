@@ -110,7 +110,7 @@ layers = [[('lnorm', lnorm)],
          ]  
 
 
-comparison = choice(['concatenate', 'add', 'multiply', 'sub', 'subsq'])
+comparison = ['mult', 'absdiff', 'sqrtabsdiff', 'sqdiff']
 
 config = {'desc' : layers, 'comparison' : comparison}
 
