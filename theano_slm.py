@@ -18,26 +18,17 @@ from theano.tensor.signal import downsample
 from pythor3.model.slm.plugins.passthrough.passthrough import (
         SequentialLayeredModelPassthrough,
         )
-from pythor3.model import SequentialLayeredModel
 from pythor3.operation import fbcorr_
 from pythor3.operation import lnorm_
 
 import asgd  # use master branch from https://github.com/jaberg/asgd
-import skdata.larray
-import skdata.utils
-import hyperopt.genson_bandits as gb
 
-
-try:
-    import sge_utils
-except ImportError:
-    pass
-import cvpr_params
-import comparisons as comp_module
 from early_stopping import fit_w_early_stopping, EarlyStopping
 
 
 TEST = False
+TEST_NUM = 200
+
 
 class TheanoSLM(object):
     """
@@ -322,121 +313,13 @@ def train_classifier(config, train_Xy, test_Xy, n_features):
     return earlystopper.best_y
 
 
-        
-DEFAULT_COMPARISONS = ['mult', 'absdiff', 'sqrtabsdiff', 'sqdiff']
-
-class LFWBandit(gb.GensonBandit):
-    source_string = cvpr_params.string(cvpr_params.config)
-    
-    def __init__(self):
-        super(LFWBandit, self).__init__(source_string=self.source_string)
-
-    @classmethod
-    def evaluate(cls, config, ctrl, use_theano=True):
-        result = get_performance(None, config, use_theano)
-        return result
-
-
-class LFWBanditHetero(LFWBandit):
-    source_string = cvpr_params.string(cvpr_params.config_h)
-      
-
-class LFWBanditSGE(LFWBandit):
-    @classmethod
-    def evaluate(cls, config, ctrl, use_theano=True):
-        outfile = os.path.join('/tmp',get_config_string(config))
-        opstring = '-l qname=hyperopt.q -o /home/render/hyperopt_jobs -e /home/render/hyperopt_jobs'
-        jobid = sge_utils.qsub(get_performance, (outfile, config, use_theano),
-                     opstring=opstring)
-        status = sge_utils.wait_and_get_statuses([jobid])
-        return cPickle.loads(open(outfile).read())
-        
-
-
-def get_performance(outfile, config, use_theano=True):
-    import skdata.lfw
-
-    c_hash = get_config_string(config)
-
-    comparisons = config.get('comparisons',DEFAULT_COMPARISONS)
-    
-    assert all([hasattr(comp_module,comparison) for comparison in comparisons])
-
-    dataset = skdata.lfw.Aligned()
-
-    X, y, Xr = get_relevant_images(dataset, dtype='float32')
-
-    batchsize = 4
-
-    desc = copy.deepcopy(config['desc'])
-    interpret_model(desc)
-    if X.ndim == 3:
-        theano_slm = TheanoSLM(
-                in_shape=(batchsize,) + X.shape[1:] + (1,),
-                description=desc)
-    elif X.ndim == 4:
-        theano_slm = TheanoSLM(
-                in_shape=(batchsize,) + X.shape[1:],
-                description=desc)
-    else:
-        raise NotImplementedError()
-
-    if use_theano:
-        slm = theano_slm
-        # -- pre-compile the function to not mess up timing
-        slm.get_theano_fn()
-    else:
-        cthor_sse = {'plugin':'cthor', 'plugin_kwargs':{'variant':'sse'}}
-        cthor = {'plugin':'cthor', 'plugin_kwargs':{}}
-        slm = SequentialLayeredModel(X.shape[1:], desc,
-                                     plugin='passthrough',
-                                     plugin_kwargs={'plugin_mapping': {
-                                         'fbcorr': cthor,
-                                          'lnorm' : cthor,
-                                          'lpool' : cthor,
-                                     }})
-
-    feature_shp = (X.shape[0],) + theano_slm.pythor_out_shape
-
-    num_splits = 1
-    performance_comp = {}
-    feature_file_name = 'features_' + c_hash + '.dat'
-    train_pairs_filename = 'train_pairs_' + c_hash + '.dat'
-    test_pairs_filename = 'test_pairs_' + c_hash + '.dat' 
-    with ExtractedFeatures(X, feature_shp, batchsize, slm,
-            feature_file_name) as features_fp:
-        for comparison in comparisons:
-            print('Doing comparison %s' % comparison)
-            perf = []
-            comparison_obj = getattr(comp_module,comparison)
-            n_features = comparison_obj.get_num_features(feature_shp)
-            for split_id in range(num_splits):
-                with PairFeatures(dataset, 'train_' + str(split_id), Xr,
-                        n_features, features_fp, comparison_obj,
-                                  train_pairs_filename) as train_Xy:
-                    with PairFeatures(dataset, 'test_' + str(split_id),
-                            Xr, n_features, features_fp, comparison_obj,
-                                      test_pairs_filename) as test_Xy:
-                        perf.append(train_classifier(config,
-                                    train_Xy, test_Xy, n_features))
-            performance_comp[comparison] = float(np.array(perf).mean())
-            
-    performance = float(np.array(performance_comp.values()).min())
-    result = dict(loss=performance, performances=performance_comp, status='ok')
-    
-    if outfile is not None:
-        outfh = open(outfile,'w')
-        cPickle.dump(result, outfh)
-        outfh.close()
-    return result
-
-
 def use_memmap(size):
     if size < 3e8:
         memmap = False
     else:
         memmap = True
     return memmap
+
 
 
 class ExtractedFeatures(object):
@@ -451,6 +334,10 @@ class ExtractedFeatures(object):
         returns - read-only memmap of features
         """
 
+        self.feature_shp = feature_shp
+        
+        self.slm = slm 
+        
         size = 4 * np.prod(feature_shp)
         print('Total size: %i bytes (%.2f GB)' % (size, size / float(1e9)))
         memmap = use_memmap(size)   
@@ -470,7 +357,7 @@ class ExtractedFeatures(object):
 
         i = 0
         t0 = time.time()
-        while not TEST or i < 10:
+        while (not TEST) or i < TEST_NUM:
             if i + batchsize >= len(X):
                 assert i < len(X)
                 xi = np.asarray(X[-batchsize:])
@@ -518,67 +405,41 @@ class ExtractedFeatures(object):
             os.remove(self.filename)
 
 
-class PairFeatures(object):
-    def __init__(self, *args, **kwargs):
-        self.args = args
-        self.kwargs = kwargs
+class TheanoExtractedFeatures(ExtractFeatures):
+    def __init__(self, X, batchsize, desc, filename):
+		desc = copy.deepcopy(desc)
+		interpret_model(desc)
+		if X.ndim == 3:
+			t_slm = TheanoSLM(
+					in_shape=(batchsize,) + X.shape[1:] + (1,),
+					description=desc)
+		elif X.ndim == 4:
+			t_slm = TheanoSLM(
+					in_shape=(batchsize,) + X.shape[1:],
+					description=desc)
+		else:
+			raise NotImplementedError()
+	
+		if use_theano:
+			slm = t_slm
+			# -- pre-compile the function to not mess up timing
+			slm.get_theano_fn()
+		else:
+			cthor_sse = {'plugin':'cthor', 'plugin_kwargs':{'variant':'sse'}}
+			cthor = {'plugin':'cthor', 'plugin_kwargs':{}}
+			slm = SequentialLayeredModel(X.shape[1:], desc,
+										 plugin='passthrough',
+										 plugin_kwargs={'plugin_mapping': {
+											 'fbcorr': cthor_sse,
+											  'lnorm' : cthor_sse,
+											  'lpool' : cthor,
+										 }})
+	
+		feature_shp = (X.shape[0],) + t_slm.pythor_out_shape
+		
+		super(TheanoExtractedFeatures, self).__init__(X, feature_shp, 
+		                                              batchsize, slm, filename)
 
-    def work(self, dataset, split, X, n_features,
-             feature_fp, comparison_obj, filename):
-        A, B, labels = dataset.raw_verification_task_resplit(split=split)
-        Ar = np.array([os.path.split(ar)[-1] for ar in A])
-        Br = np.array([os.path.split(br)[-1] for br in B])
-        Aind = np.searchsorted(X, Ar)
-        Bind = np.searchsorted(X, Br)
-        assert len(Aind) == len(Bind)
-        pair_shp = (len(labels), n_features)
-        
-        size = 4 * np.prod(pair_shp)
-        print('Total size: %i bytes (%.2f GB)' % (size, size / float(1e9)))                            
-        memmap = use_memmap(size)       
-        if memmap:
-            print('get_pair_fp memmap %s for features of shape %s' % (
-                                                    filename, str(pair_shp)))
-            feature_pairs_fp = np.memmap(filename,
-                                    dtype='float32',
-                                    mode='w+',
-                                    shape=pair_shp)
-        else:
-            print('using memory for features of shape %s' % str(pair_shp))
-            feature_pairs_fp = np.empty(pair_shp, dtype='float32')                                    
-
-        for (ind,(ai, bi)) in enumerate(zip(Aind, Bind)):
-            feature_pairs_fp[ind] = comparison_obj(feature_fp[ai],
-                                                   feature_fp[bi])
-            if ind % 100 == 0:
-                print('get_pair_fp  %i / %i' % (ind, len(Aind)))
-
-        if memmap:                
-            print ('flushing memmap')
-            sys.stdout.flush()
-            del feature_pairs_fp
-            self.filename = filename
-            self.features = np.memmap(filename,
-                    dtype='float32',
-                    mode='r',
-                    shape=pair_shp)
-        else:
-            self.features = feature_pairs_fp
-            self.filename = ''
-            
-        self.labels = labels
-        
-    def __enter__(self):
-        self.work(*self.args, **self.kwargs)
-        return (self.features, self.labels)
-
-    def __exit__(self, *args):
-        if self.filename:
-            os.remove(self.filename)
-
-
-
-######utils
 
 class InvalidDescription(Exception):
     """Model description was invalid"""
@@ -589,12 +450,14 @@ def dict_add(a, b):
     rval.update(b)
     return rval
 
+
 def get_into_shape(x):
     if hasattr(x,'__iter__'):
         x = np.array(x)
         assert x.ndim == 1
         x = x[np.newaxis, :, np.newaxis, np.newaxis]
     return x
+
 
 def get_pythor_safe_description(description):
     description = copy.deepcopy(description)
@@ -607,73 +470,10 @@ def get_pythor_safe_description(description):
 
     
 
-def get_config_string(configs):
-    return hashlib.sha1(repr(configs)).hexdigest()
-
-
-class ImgLoaderResizer(object):
-    """ Load 250x250 greyscale images, return normalized 200x200 float32 ones.
-    """
-    def __init__(self, shape=None, ndim=None, dtype='float32', mode=None):
-        assert shape == (200, 200)
-        assert dtype == 'float32'
-        self._shape = shape
-        if ndim is None:
-            self._ndim = None if (shape is None) else len(shape)
-        else:
-            self._ndim = ndim
-        self._dtype = dtype
-        self.mode = mode
-
-    def rval_getattr(self, attr, objs):
-        if attr == 'shape' and self._shape is not None:
-            return self._shape
-        if attr == 'ndim' and self._ndim is not None:
-            return self._ndim
-        if attr == 'dtype':
-            return self._dtype
-        raise AttributeError(attr)
-
-    def __call__(self, file_path):
-        im = Image.open(file_path)
-        im = im.resize((200, 200), Image.ANTIALIAS)
-        rval = np.asarray(im, 'float32')
-        rval -= rval.mean()
-        rval /= max(rval.std(), 1e-3)
-        assert rval.shape == (200, 200)
-        return rval
-
-
-def get_relevant_images(dataset, dtype='uint8'):
-    # load & resize logic is LFW Aligned -specific
-    assert 'Aligned' in str(dataset.__class__)
-
-    Xr, yr = dataset.raw_classification_task()
-    Xr = np.array(Xr)
-
-    Atr, Btr, c = dataset.raw_verification_task_resplit(split='train_0')
-    Ate, Bte, c = dataset.raw_verification_task_resplit(split='test_0')
-    all_images = np.unique(np.concatenate([Atr,Btr,Ate,Bte]))
-
-    inds = np.searchsorted(Xr, all_images)
-    Xr = Xr[inds]
-    yr = yr[inds]
-
-    X = skdata.larray.lmap(
-                ImgLoaderResizer(
-                    shape=(200, 200),  # lfw-specific
-                    dtype=dtype),
-                Xr)
-
-    Xr = np.array([os.path.split(x)[-1] for x in Xr])
-
-    return X, yr, Xr
-
 def flatten(x):
     return list(itertools.chain(*x))
-    
-    
-#####heterogenous model stuff
+
+
 def interpret_activ(filter, activ):
     n_filters = filter['initialize']['n_filters']
     generator = activ['generate'][0].split(':')
