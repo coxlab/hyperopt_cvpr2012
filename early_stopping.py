@@ -46,7 +46,8 @@ def fit_w_early_stopping(model, es,
         train_X, train_y,
         validation_X, validation_y,
         batchsize=10,
-        validation_interval=1000):
+        validation_interval=1000,
+        verbose=0):
 
     tpos = 0
     best_model = None
@@ -58,6 +59,7 @@ def fit_w_early_stopping(model, es,
             xi = validation_X[vpos:vpos + batchsize]
             yi = validation_y[vpos:vpos + batchsize]
             pi = model.predict(xi)
+            assert np.isfinite(pi)
             errs.append((yi != pi).astype('float64'))
             vpos += batchsize
 
@@ -65,8 +67,10 @@ def fit_w_early_stopping(model, es,
         # -- std dev appropriate for classification
         vscore_std = np.sqrt(vscore * (1.0 - vscore) / len(validation_X))
         es.step(vscore, vscore_std)
-        #print es, 'margin_avg', model.margin_avg   
-        print (model.asgd_weights ** 2).sum()
+        if verbose:
+            print ("fit_w_early_stopping: agsd weights sqrd norm: %f" % (
+                model.asgd_weights ** 2).sum())
+            print ("early stopper %s" % str(es))
         if es.cur_time == es.best_time:
             best_model = copy.deepcopy(model)
 
