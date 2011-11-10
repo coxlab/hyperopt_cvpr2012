@@ -27,7 +27,7 @@ except ImportError:
     pass
 import cvpr_params
 import comparisons as comp_module
-from theano_slm import (TheanosExtractedFeatures, 
+from theano_slm import (TheanoExtractedFeatures, 
                         train_classifier, 
                         use_memmap)
 
@@ -75,11 +75,12 @@ def get_performance(outfile, config, use_theano=True):
     comparisons = config.get('comparisons',DEFAULT_COMPARISONS)    
     assert all([hasattr(comp_module,comparison) for comparison in comparisons])
 
-    X, y, Xr = get_relevant_images(dataset, dtype='float32')
+    num_splits = 1
+    
+    X, y, Xr = get_relevant_images(dataset, num_splits, dtype='float32')
 
     batchsize = 4
-
-    num_splits = 1
+    
     performance_comp = {}
     feature_file_name = 'features_' + c_hash + '.dat'
     train_pairs_filename = 'train_pairs_' + c_hash + '.dat'
@@ -209,16 +210,19 @@ class ImgLoaderResizer(object):
         return rval
 
 
-def get_relevant_images(dataset, dtype='uint8'):
+def get_relevant_images(dataset, num_splits, dtype='uint8'):
     # load & resize logic is LFW Aligned -specific
     assert 'Aligned' in str(dataset.__class__)
 
     Xr, yr = dataset.raw_classification_task()
     Xr = np.array(Xr)
 
-    Atr, Btr, c = dataset.raw_verification_task_resplit(split='train_0')
-    Ate, Bte, c = dataset.raw_verification_task_resplit(split='test_0')
-    all_images = np.unique(np.concatenate([Atr,Btr,Ate,Bte]))
+    dsets = []
+    for ind in range(num_splits):
+        Atr, Btr, c = dataset.raw_verification_task_resplit(split='train_' + str(ind))
+        Ate, Bte, c = dataset.raw_verification_task_resplit(split='test_' + str(ind))
+        dsets.extend([Atr, Btr, Ate, Bte])
+    all_images = np.unique(np.concatenate(dsets))
 
     inds = np.searchsorted(Xr, all_images)
     Xr = Xr[inds]

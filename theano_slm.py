@@ -287,22 +287,44 @@ def train_classifier(config, train_Xy, test_Xy, n_features):
     print 'training classifier'
     train_X, train_y = train_Xy
     test_X, test_y = test_Xy
-    train_mean = train_X.mean(axis=0)
-    train_std = train_X.std(axis=0)
 
     # -- change labels to -1, +1
     assert set(train_y) == set([0, 1])
     train_y = train_y * 2 - 1
     test_y = test_y * 2 - 1
 
+    model = asgd.naive_asgd.NaiveBinaryASGD(
+                n_features=n_features,
+                l2_regularization=0,
+                sgd_step_size0=1e-3)
+    
+    return train_classifier_core(model, train_X, train_y, test_X, test_y)
+    
+    
+def train_multiclassifier(config, train_Xy, test_Xy, n_features, n_classes):
+    print 'training classifier'
+    train_X, train_y = train_Xy
+    test_X, test_y = test_Xy
+
+    assert set(train_y) == set(range(n_classes))
+
+    model = asgd.naive_asgd.NaiveMulticlassASGD(
+                n_features=n_features,
+                n_classes=n_classes,
+                l2_regularization=0,
+                sgd_step_size0=1e-3)
+    
+    return train_classifier_core(model, train_X, train_y, test_X, test_y)   
+    
+    
+def train_classifier_core(model, train_X, train_y, test_X, test_y):
+    train_mean = train_X.mean(axis=0)
+    train_std = train_X.std(axis=0)
     def normalize(XX):
         return (XX - train_mean) / np.maximum(train_std, 1e-6)
 
     model, earlystopper = fit_w_early_stopping(
-            model=asgd.naive_asgd.NaiveBinaryASGD(
-                n_features=n_features,
-                l2_regularization=0,
-                sgd_step_size0=1e-3),
+            model=model,
             es=EarlyStopping(warmup=20), # unit: validation intervals
             train_X=normalize(train_X),
             train_y=train_y,
