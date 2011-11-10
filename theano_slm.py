@@ -356,7 +356,7 @@ def get_performance(outfile, config, use_theano=True):
 
     dataset = skdata.lfw.Aligned()
 
-    X, y, Xr = get_relevant_images(dataset)
+    X, y, Xr = get_relevant_images(dataset, dtype='float32')
 
     batchsize = 4
 
