@@ -49,6 +49,12 @@ class uniform(gObj):
 class gaussian(gObj):
     name = 'gaussian'    
     
+class lognormal(gObj):
+    name = 'lognormal'    
+
+class qlognormal(gObj):
+    name = 'qlognormal'    
+
 class ref(object):
     def __init__(self,*p):
         self.path = p
@@ -131,7 +137,7 @@ activ_uniform = {'min_out' : choice([null, {'generate' : ('random:uniform',
                                                            
                                             }]),                                       
                 }
-              
+                
 activ_gaussian = {'min_out' : choice([null, {'generate' : ('random:normal',
                                                           {'rseed':42,
                                                            'mean':uniform(-.2,.2),
@@ -185,3 +191,38 @@ layers_h = [[('lnorm', lnorm)],
            
 
 config_h = {'desc' : layers_h, 'comparison' : comparison}
+
+
+activ_uniform2 = {'min_out' : choice([null, {'generate' : ('random:uniform',
+                                                           {'rseed':42,
+                                                           'mean':uniform(-.5,.1),
+                                                           'delta':uniform(0,.2)}),
+                                                           
+                                            }]),
+                 'max_out' : choice([null, 1]),                                       
+                }
+                
+filter1_h2 = copy.deepcopy(filter1)
+filter1_h2['kwargs'] = activ_uniform2
+					        
+filter2_h2 = copy.deepcopy(filter2)
+filter2_h2['kwargs'] = activ_uniform2
+
+filter3_h2 = copy.deepcopy(filter2)
+filter3_h2['kwargs'] = activ_uniform2
+					    				        
+       
+layers_h2 = [[('lnorm', lnorm)],
+            [('fbcorr_h', filter1_h2),
+             ('lpool', lpool),
+             ('lnorm', lnorm)],
+            [('fbcorr_h', filter2_h2),
+             ('lpool' , lpool),
+             ('lnorm' , lnorm)],
+            [('fbcorr_h', filter3_h2),
+             ('lpool', lpool),
+             ('lnorm', lnorm)]
+           ]  
+           
+
+config_h2 = {'desc' : layers_h2, 'comparison' : comparison}
