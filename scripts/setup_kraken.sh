@@ -12,3 +12,8 @@ for NODE in kraken4 kraken5 kraken6 ; do
   scp setup_kraken_remote.sh ${NODE}:setup.sh
   ssh $NODE ".  .VENV/bin/activate; sh setup.sh"
 done
+
+
+# WORKER:
+# ssh -R27017:localhost:27017 kraken5 \
+#    "THEANO_FLAGS=device=gpu0 cvs/hyperopt/bin/hyperopt-mongo-worker"
