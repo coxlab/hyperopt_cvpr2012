@@ -65,7 +65,7 @@ def fit_w_early_stopping(model, es,
         # -- std dev appropriate for classification
         vscore_std = np.sqrt(vscore * (1.0 - vscore) / len(validation_X))
         es.step(vscore, vscore_std)
-        print es, 'margin_avg', model.margin_avg   
+        #print es, 'margin_avg', model.margin_avg   
         print (model.asgd_weights ** 2).sum()
         if es.cur_time == es.best_time:
             best_model = copy.deepcopy(model)
