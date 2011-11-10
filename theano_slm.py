@@ -358,6 +358,10 @@ class LFWBanditHetero(LFWBandit):
     source_string = cvpr_params.string(cvpr_params.config_h)
 
 
+class LFWBanditHetero2(LFWBandit):
+    source_string = cvpr_params.string(cvpr_params.config_h2)      
+    
+
 class LFWBanditSGE(LFWBandit):
     @classmethod
     def evaluate(cls, config, ctrl, use_theano=True):
@@ -683,6 +687,7 @@ def get_into_shape(x):
         x = np.array(x)
         assert x.ndim == 1
         x = x[np.newaxis, :, np.newaxis, np.newaxis]
+        x = x.astype(np.float32)
     return x
 
 def get_pythor_safe_description(description):
