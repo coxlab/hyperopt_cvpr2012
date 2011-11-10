@@ -826,7 +826,7 @@ def interpret_model(desc):
                     sz = init.pop('filter_size')
                     init['filter_shape'] = (2*sz+1, 2*sz+1)
             elif opname in ['lnorm', 'lnorm_h']:
-                init = opparams['initialize']
+                init = opparams['kwargs']
                 if init.has_key('inker_size'):
                     sz = init.pop('inker_size')
                     init['inker_shape'] = (2*sz+1, 2*sz+1)            
@@ -834,7 +834,7 @@ def interpret_model(desc):
                     sz = init.pop('outker_size')
                     init['outker_shape'] = (2*sz+1, 2*sz+1)  
             elif opname in ['lpool', 'lpool_h']:
-                init = opparams['initialize']
+                init = opparams['kwargs']
                 if init.has_key('ker_size'):
                     sz = init.pop('ker_size')
                     init['ker_shape'] = (2*sz+1, 2*sz+1)                 

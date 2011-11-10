@@ -208,7 +208,7 @@ filter1_h2['kwargs'] = activ_uniform2
 filter2_h2 = copy.deepcopy(filter2)
 filter2_h2['kwargs'] = activ_uniform2
 
-filter3_h2 = copy.deepcopy(filter2)
+filter3_h2 = copy.deepcopy(filter3)
 filter3_h2['kwargs'] = activ_uniform2
 					    				        
        
@@ -243,7 +243,7 @@ filter1_h3['kwargs'] = activ_uniform3
 filter2_h3 = copy.deepcopy(filter2)
 filter2_h3['kwargs'] = activ_uniform3
 
-filter3_h3 = copy.deepcopy(filter2)
+filter3_h3 = copy.deepcopy(filter3)
 filter3_h3['kwargs'] = activ_uniform3
 					    				        
        
@@ -264,7 +264,7 @@ config_h3 = {'desc' : layers_h3, 'comparison' : comparison}
 
 activ_uniform4 = {'min_out' : choice([null, {'generate' : ('random:uniform',
                                                            {'rseed':42,
-                                                           'mean':-.2,
+                                                           'mean':-0.2,
                                                            'delta':uniform(0,.3)}),
                                                            
                                             }]),
@@ -277,7 +277,7 @@ filter1_h4['kwargs'] = activ_uniform4
 filter2_h4 = copy.deepcopy(filter2)
 filter2_h4['kwargs'] = activ_uniform4
 
-filter3_h4 = copy.deepcopy(filter2)
+filter3_h4 = copy.deepcopy(filter3)
 filter3_h4['kwargs'] = activ_uniform4
 					    				        
        
