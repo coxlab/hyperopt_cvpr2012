@@ -208,8 +208,8 @@ filter1_h2['kwargs'] = activ_uniform2
 filter2_h2 = copy.deepcopy(filter2)
 filter2_h2['kwargs'] = activ_uniform2
 
-filter2_h2 = copy.deepcopy(filter2)
-filter2_h2['kwargs'] = activ_uniform2
+filter3_h2 = copy.deepcopy(filter2)
+filter3_h2['kwargs'] = activ_uniform2
 					    				        
        
 layers_h2 = [[('lnorm', lnorm)],
