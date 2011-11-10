@@ -8,6 +8,7 @@ import os.path as path
 import hashlib
 import cPickle
 
+import Image
 import numpy as np
 
 import theano
@@ -611,6 +612,39 @@ def get_num_features(shp, comparison):
         raise ValueError(comparison)
 
 
+class ImgLoaderResizer(object):
+    """ Load 250x250 greyscale images, return normalized 200x200 float32 ones.
+    """
+    def __init__(self, shape=None, ndim=None, dtype='float32', mode=None):
+        assert shape == (200, 200)
+        assert dtype == 'float32'
+        self._shape = shape
+        if ndim is None:
+            self._ndim = None if (shape is None) else len(shape)
+        else:
+            self._ndim = ndim
+        self._dtype = dtype
+        self.mode = mode
+
+    def rval_getattr(self, attr, objs):
+        if attr == 'shape' and self._shape is not None:
+            return self._shape
+        if attr == 'ndim' and self._ndim is not None:
+            return self._ndim
+        if attr == 'dtype':
+            return self._dtype
+        raise AttributeError(attr)
+
+    def __call__(self, file_path):
+        im = Image.open(file_path)
+        im = im.resize((200, 200), Image.ANTIALIAS)
+        rval = np.asarray(im, 'float32')
+        rval -= rval.mean()
+        rval /= max(rval.std(), 1e-3)
+        assert rval.shape == (200, 200)
+        return rval
+
+
 def compare(x, y, comparison):
     if comparison == 'concatenate':
         return np.concatenate([x.flatten(),y.flatten()])
@@ -627,28 +661,30 @@ def compare(x, y, comparison):
 
 
 def get_relevant_images(dataset, dtype='uint8'):
+    # load & resize logic is LFW Aligned -specific
+    assert 'Aligned' in str(dataset.__class__)
 
     Xr, yr = dataset.raw_classification_task()
     Xr = np.array(Xr)
-    
+
     Atr, Btr, c = dataset.raw_verification_task_resplit(split='train_0')
     Ate, Bte, c = dataset.raw_verification_task_resplit(split='test_0')
     all_images = np.unique(np.concatenate([Atr,Btr,Ate,Bte]))
-        
+
     inds = np.searchsorted(Xr, all_images)
-    Xr = Xr[inds]   
+    Xr = Xr[inds]
     yr = yr[inds]
-        
+
     X = skdata.larray.lmap(
-                skdata.utils.image.ImgLoader(
-                    shape=dataset.img_shape,  # lfw-specific
+                ImgLoaderResizer(
+                    shape=(200, 200),  # lfw-specific
                     dtype=dtype),
                 Xr)
-                
+
     Xr = np.array([os.path.split(x)[-1] for x in Xr])
-    
+
     return X, yr, Xr
-    
+
 def flatten(x):
     return list(itertools.chain(*x))
     
