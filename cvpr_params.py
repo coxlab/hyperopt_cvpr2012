@@ -49,6 +49,12 @@ class uniform(gObj):
 class gaussian(gObj):
     name = 'gaussian'    
     
+class lognormal(gObj):
+    name = 'lognormal'    
+
+class qlognormal(gObj):
+    name = 'qlognormal'    
+
 class ref(object):
     def __init__(self,*p):
         self.path = p

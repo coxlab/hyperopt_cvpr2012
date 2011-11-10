@@ -10,6 +10,7 @@ import cPickle
 
 import Image
 import numpy as np
+from bson import BSON, SON
 
 import theano
 import theano.tensor as tensor
@@ -36,6 +37,18 @@ import cvpr_params
 import comparisons as comp_module
 from early_stopping import fit_w_early_stopping, EarlyStopping
 
+
+def son_to_py(son):
+    """ turn son keys (unicode) into str
+    """
+    if isinstance(son, SON):
+        return dict([(str(k), son_to_py(v)) for k, v in son.items()])
+    elif isinstance(son, list):
+        return [son_to_py(s) for s in son]
+    elif isinstance(son, basestring):
+        return str(son)
+    else:
+        return son
 
 TEST = False
 
@@ -64,6 +77,7 @@ class TheanoSLM(object):
 
         assert len(self.theano_in_shape) == 4
         print 'TheanoSLM.theano_in_shape', self.theano_in_shape
+        print 'TheanoSLM Description', description
 
         # This guy is used to generate filterbanks
         pythor_safe_description = get_pythor_safe_description(description)
@@ -93,7 +107,7 @@ class TheanoSLM(object):
                             op_params.get('kwargs', {}),
                             op_params.get('initialize', {}))
                 x, x_shp = init_fn(x, x_shp, **_D)
-                print 'added layer', op_name, 'shape', x_shp
+                print 'TheanoSLM added layer', op_name, 'shape', x_shp
 
         if 0 == np.prod(x_shp):
             raise InvalidDescription()
@@ -102,13 +116,13 @@ class TheanoSLM(object):
         self.pythor_out_shape = x_shp[2], x_shp[3], x_shp[1]
         self.s_output = x
 
-    def init_fbcorr_h(self, x, x_shp, **kwargs):      
+    def init_fbcorr_h(self, x, x_shp, **kwargs):
         min_out = kwargs.get('min_out', fbcorr_.DEFAULT_MIN_OUT)
         max_out = kwargs.get('max_out', fbcorr_.DEFAULT_MAX_OUT)
         kwargs['max_out'] = get_into_shape(max_out)
-        kwargs['min_out'] = get_into_shape(min_out)       
+        kwargs['min_out'] = get_into_shape(min_out)
         return self.init_fbcorr(x, x_shp, **kwargs)
-            
+
     def init_fbcorr(self, x, x_shp, n_filters,
             filter_shape,
             min_out=fbcorr_.DEFAULT_MIN_OUT,
@@ -322,24 +336,24 @@ def train_classifier(config, train_Xy, test_Xy, n_features):
     return earlystopper.best_y
 
 
-        
 DEFAULT_COMPARISONS = ['mult', 'absdiff', 'sqrtabsdiff', 'sqdiff']
+
 
 class LFWBandit(gb.GensonBandit):
     source_string = cvpr_params.string(cvpr_params.config)
-    
+
     def __init__(self):
         super(LFWBandit, self).__init__(source_string=self.source_string)
 
     @classmethod
     def evaluate(cls, config, ctrl, use_theano=True):
-        result = get_performance(None, config, use_theano)
+        result = get_performance(None, son_to_py(config), use_theano)
         return result
 
 
 class LFWBanditHetero(LFWBandit):
     source_string = cvpr_params.string(cvpr_params.config_h)
-      
+
 
 class LFWBanditHetero2(LFWBandit):
     source_string = cvpr_params.string(cvpr_params.config_h2)      
@@ -353,7 +367,71 @@ class LFWBanditSGE(LFWBandit):
                      opstring=opstring)
         status = sge_utils.wait_and_get_statuses([jobid])
         return cPickle.loads(open(outfile).read())
-        
+
+
+class LFWBanditEZSearch(gb.GensonBandit):
+    """
+    This Bandit has the same evaluate function as LFWBandit,
+    but the template is setup for more efficient search.
+    """
+    def __init__(self):
+        from cvpr_params import (
+                choice, uniform, gaussian, lognormal, ref, null, qlognormal)
+        lnorm = {'kwargs':{'inker_shape' : choice([(3,3),(5,5),(7,7),(9,9)]),
+                 'outker_shape' : ref('this','inker_shape'),
+                 'remove_mean' : choice([0,1]),
+                 'stretch' : lognormal(0, 1),
+                 'threshold' : lognormal(0, 1)
+                 }}
+        lpool = dict(
+                kwargs=dict(
+                    stride=2,
+                    ker_shape=choice([(3,3),(5,5),(7,7),(9,9)]),
+                    order=choice([1, uniform(1, 10)])))
+        activ =  {'min_out' : choice([null,0]), 'max_out' : choice([1,null])}
+
+        filter1 = dict(
+                initialize=dict(
+                    filter_shape=choice([(3,3),(5,5),(7,7),(9,9)]),
+                    n_filters=qlognormal(np.log(32), 1, round=16),
+                    generate=(
+                        'random:uniform',
+                        {'rseed': choice([11, 12, 13, 14, 15])})),
+                kwargs=activ)
+
+        filter2 = dict(
+                initialize=dict(
+                    filter_shape=choice([(3, 3), (5, 5), (7, 7), (9, 9)]),
+                    n_filters=qlognormal(np.log(32), 1, round=16),
+                    generate=(
+                        'random:uniform',
+                        {'rseed': choice([21, 22, 23, 24, 25])})),
+                kwargs=activ)
+
+        filter3 = dict(
+                initialize=dict(
+                    filter_shape=choice([(3, 3), (5, 5), (7, 7), (9, 9)]),
+                    n_filters=qlognormal(np.log(32), 1, round=16),
+                    generate=(
+                        'random:uniform',
+                        {'rseed': choice([31, 32, 33, 34, 35])})),
+                kwargs=activ)
+
+        layers = [[('lnorm', lnorm)],
+                  [('fbcorr', filter1), ('lpool', lpool), ('lnorm', lnorm)],
+                  [('fbcorr', filter2), ('lpool', lpool), ('lnorm', lnorm)],
+                  [('fbcorr', filter3), ('lpool', lpool), ('lnorm', lnorm)]]
+
+        comparison = ['mult', 'absdiff', 'sqrtabsdiff', 'sqdiff']
+
+        config = {'desc' : layers, 'comparison' : comparison}
+        source_string = repr(config).replace("'",'"')
+        gb.GensonBandit.__init__(self, source_string=source_string)
+
+    @classmethod
+    def evaluate(cls, config, ctrl, use_theano=True):
+        result = get_performance(None, son_to_py(config), use_theano)
+        return result
 
 
 def get_performance(outfile, config, use_theano=True):
@@ -422,11 +500,16 @@ def get_performance(outfile, config, use_theano=True):
                                       test_pairs_filename) as test_Xy:
                         perf.append(train_classifier(config,
                                     train_Xy, test_Xy, n_features))
+                        n_test_examples = len(test_Xy[0])
             performance_comp[comparison] = float(np.array(perf).mean())
-            
+
     performance = float(np.array(performance_comp.values()).min())
-    result = dict(loss=performance, performances=performance_comp, status='ok')
-    
+    result = dict(
+            loss=performance,
+            loss_variance=performance * (1 - performance) / n_test_examples,
+            performances=performance_comp,
+            status='ok')
+
     if outfile is not None:
         outfh = open(outfile,'w')
         cPickle.dump(result, outfh)
