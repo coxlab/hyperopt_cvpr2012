@@ -323,3 +323,31 @@ layers_h5 = [[('lnorm', lnorm)],
 
 
 config_h5 = {'desc' : layers_h5, 'comparison' : comparison}
+
+
+activ_uniform_top = ref('root','activ')
+
+filter1_h_top = copy.deepcopy(filter1)
+filter1_h_top['kwargs'] = activ_uniform_top
+
+filter2_h_top = copy.deepcopy(filter2)
+filter2_h_top['kwargs'] = activ_uniform_top
+
+filter3_h_top = copy.deepcopy(filter3)
+filter3_h_top['kwargs'] = activ_uniform_top
+
+
+layers_h_top = [[('lnorm', lnorm)],
+            [('fbcorr_h', filter1_h_top),
+             ('lpool', lpool),
+             ('lnorm', lnorm)],
+            [('fbcorr_h', filter2_h_top),
+             ('lpool' , lpool),
+             ('lnorm' , lnorm)],
+            [('fbcorr_h', filter3_h_top),
+             ('lpool', lpool),
+             ('lnorm', lnorm)]
+           ]
+
+config_h_top = {'desc' : layers_h_top,'comparison' : comparison, 'activ': activ_uniform3}
+

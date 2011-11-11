@@ -359,20 +359,25 @@ class LFWBanditHetero(LFWBandit):
 
 
 class LFWBanditHetero2(LFWBandit):
-    source_string = cvpr_params.string(cvpr_params.config_h2)      
-    
+    source_string = cvpr_params.string(cvpr_params.config_h2)
+
 
 class LFWBanditHetero3(LFWBandit):
-    source_string = cvpr_params.string(cvpr_params.config_h3)         
+    source_string = cvpr_params.string(cvpr_params.config_h3)
 
 
 class LFWBanditHetero4(LFWBandit):
-    source_string = cvpr_params.string(cvpr_params.config_h4)  
+    source_string = cvpr_params.string(cvpr_params.config_h4)
 
 
 class LFWBanditHetero5(LFWBandit):
-    source_string = cvpr_params.string(cvpr_params.config_h5)  
+    source_string = cvpr_params.string(cvpr_params.config_h5)
 
+
+
+
+class LFWBanditHeteroTop(LFWBandit):
+    source_string = cvpr_params.string(cvpr_params.config_h_top)
 
 class LFWBanditSGE(LFWBandit):
     @classmethod
@@ -456,7 +461,7 @@ def get_performance(outfile, config, use_theano=True):
     c_hash = get_config_string(config)
 
     comparisons = config.get('comparisons',DEFAULT_COMPARISONS)
-    
+
     assert all([hasattr(comp_module,comparison) for comparison in comparisons])
 
     dataset = skdata.lfw.Aligned()
@@ -499,7 +504,7 @@ def get_performance(outfile, config, use_theano=True):
     performance_comp = {}
     feature_file_name = 'features_' + c_hash + '.dat'
     train_pairs_filename = 'train_pairs_' + c_hash + '.dat'
-    test_pairs_filename = 'test_pairs_' + c_hash + '.dat' 
+    test_pairs_filename = 'test_pairs_' + c_hash + '.dat'
     with ExtractedFeatures(X, feature_shp, batchsize, slm,
             feature_file_name) as features_fp:
         for comparison in comparisons:
@@ -564,7 +569,7 @@ class ExtractedFeatures(object):
                 mode='w+',
                 shape=feature_shp)
         else:
-            print('Using memory for features of shape %s' % str(feature_shp)) 
+            print('Using memory for features of shape %s' % str(feature_shp))
             features_fp = np.empty(feature_shp,dtype='float32')
 
         if TEST:
@@ -637,10 +642,10 @@ class PairFeatures(object):
         Bind = np.searchsorted(X, Br)
         assert len(Aind) == len(Bind)
         pair_shp = (len(labels), n_features)
-        
+
         size = 4 * np.prod(pair_shp)
-        print('Total size: %i bytes (%.2f GB)' % (size, size / float(1e9)))                            
-        memmap = use_memmap(size)       
+        print('Total size: %i bytes (%.2f GB)' % (size, size / float(1e9)))
+        memmap = use_memmap(size)
         if memmap:
             print('get_pair_fp memmap %s for features of shape %s' % (
                                                     filename, str(pair_shp)))
@@ -650,7 +655,7 @@ class PairFeatures(object):
                                     shape=pair_shp)
         else:
             print('using memory for features of shape %s' % str(pair_shp))
-            feature_pairs_fp = np.empty(pair_shp, dtype='float32')                                    
+            feature_pairs_fp = np.empty(pair_shp, dtype='float32')
 
         for (ind,(ai, bi)) in enumerate(zip(Aind, Bind)):
             feature_pairs_fp[ind] = comparison_obj(feature_fp[ai],
@@ -658,7 +663,7 @@ class PairFeatures(object):
             if ind % 100 == 0:
                 print('get_pair_fp  %i / %i' % (ind, len(Aind)))
 
-        if memmap:                
+        if memmap:
             print ('flushing memmap')
             sys.stdout.flush()
             del feature_pairs_fp
@@ -670,9 +675,9 @@ class PairFeatures(object):
         else:
             self.features = feature_pairs_fp
             self.filename = ''
-            
+
         self.labels = labels
-        
+
     def __enter__(self):
         self.work(*self.args, **self.kwargs)
         return (self.features, self.labels)
@@ -711,7 +716,7 @@ def get_pythor_safe_description(description):
                 layer_desc[op_idx] = (newname,op_params)
     return description
 
-    
+
 
 def get_config_string(configs):
     return hashlib.sha1(repr(configs)).hexdigest()
@@ -777,14 +782,14 @@ def get_relevant_images(dataset, dtype='uint8'):
 
 def flatten(x):
     return list(itertools.chain(*x))
-    
-    
+
+
 #####heterogenous model stuff
 def interpret_activ(filter, activ):
     n_filters = filter['initialize']['n_filters']
     generator = activ['generate'][0].split(':')
     vals = activ['generate'][1]
-    
+
     if generator[0] == 'random':
         dist = generator[1]
         if dist == 'uniform':
@@ -812,12 +817,12 @@ def interpret_activ(filter, activ):
         activ_vec = flatten([[v]*num for v in values] + [[values[-1]]*delta])
     else:
         raise ValueError, 'not recognized'
-    
+
     return activ_vec
-        
+
 def interpret_model(desc):
     for layer in desc:
-        for (opname,opparams) in layer:  
+        for (opname,opparams) in layer:
             if opname == 'fbcorr_h':
                 kw = opparams['kwargs']
                 if hasattr(kw.get('min_out'),'keys'):
@@ -833,12 +838,12 @@ def interpret_model(desc):
                 init = opparams['kwargs']
                 if init.has_key('inker_size'):
                     sz = init.pop('inker_size')
-                    init['inker_shape'] = (2*sz+1, 2*sz+1)            
+                    init['inker_shape'] = (2*sz+1, 2*sz+1)
                 if init.has_key('outker_size'):
                     sz = init.pop('outker_size')
-                    init['outker_shape'] = (2*sz+1, 2*sz+1)  
+                    init['outker_shape'] = (2*sz+1, 2*sz+1)
             elif opname in ['lpool', 'lpool_h']:
                 init = opparams['kwargs']
                 if init.has_key('ker_size'):
                     sz = init.pop('ker_size')
-                    init['ker_shape'] = (2*sz+1, 2*sz+1)                 
+                    init['ker_shape'] = (2*sz+1, 2*sz+1)
