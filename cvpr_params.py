@@ -264,7 +264,7 @@ config_h3 = {'desc' : layers_h3, 'comparison' : comparison}
 
 activ_uniform4 = {'min_out' : choice([null, {'generate' : ('random:uniform',
                                                            {'rseed':42,
-                                                           'mean':-0.2,
+                                                           'mean':0-0.2,
                                                            'delta':uniform(0,.3)}),
                                                            
                                             }]),
