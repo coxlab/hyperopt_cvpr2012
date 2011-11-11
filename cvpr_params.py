@@ -351,3 +351,12 @@ layers_h_top = [[('lnorm', lnorm)],
 
 config_h_top = {'desc' : layers_h_top,'comparison' : comparison, 'activ': activ_uniform3}
 
+import cPickle
+Top5 = cPickle.load(open('top.pkl'))
+for t in Top5:
+    t[1][0][1]['kwargs']['min_out'] = {'generate' : ('random:uniform',
+                                                           {'rseed':42,
+                                                           'mean':0,
+                                                           'delta':uniform(0,.3)})}
+    t[1][0][0] = 'fbcorr_h'
+config_h_Top5 = {'desc': choice(Top5), 'comparison' : comparison}

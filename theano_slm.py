@@ -374,7 +374,8 @@ class LFWBanditHetero5(LFWBandit):
     source_string = cvpr_params.string(cvpr_params.config_h5)
 
 
-
+class LFWBanditHeteroTop5(LFWBandit):
+    source_string = cvpr_params.string(cvpr_params.config_h_Top5).replace('u"','"').replace('None','null')
 
 class LFWBanditHeteroTop(LFWBandit):
     source_string = cvpr_params.string(cvpr_params.config_h_top)
