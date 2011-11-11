@@ -391,4 +391,4 @@ Top5b = copy.deepcopy(Top5)
 for t in Top5b:
     t[1][1][1]['kwargs']['order'] = lpool_h2
     t[1][1][0] = 'lpool_h'
-config_h_pool2 = {'desc': Top5b[0], 'comparison' : comparison}
+config_h_pool2 = {'desc': choice(Top5b), 'comparison' : comparison}
