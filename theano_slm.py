@@ -254,10 +254,10 @@ class TheanoSLM(object):
         r_shp = x_shp[0], x_shp[1], ssqshp[2], ssqshp[3]
         return r, r_shp
 
-    def init_lpool_h(self, **kwargs):
+    def init_lpool_h(self, x, x_shp, **kwargs):
         order = kwargs.get('order', 1)
         kwargs['order'] = get_into_shape(order)
-        return init_lpool(self, **kwargs)
+        return self.init_lpool(x, x_shp, **kwargs)
 
     def init_lpool(self, x, x_shp,
             ker_shape=(3, 3),
@@ -265,9 +265,16 @@ class TheanoSLM(object):
             stride=1,
             mode='valid'):
 
-        if order == 1:
+        if hasattr(order, '__iter__'):
+            o1 = (order == 1).all()
+            o2 = (order == order.astype(np.int)).all()
+        else:
+            o1 = order == 1
+            o2 = (order == int(order))
+
+        if o1:
             r, r_shp = self.boxconv(x, x_shp, ker_shape)
-        elif order == int(order):
+        elif o2:
             r, r_shp = self.boxconv(x ** order, x_shp, ker_shape)
             r = tensor.maximum(r, 0) ** (1.0 / order)
         else:
@@ -379,6 +386,9 @@ class LFWBanditHeteroTop5(LFWBandit):
 
 class LFWBanditHeteroTop(LFWBandit):
     source_string = cvpr_params.string(cvpr_params.config_h_top)
+
+class LFWBanditHeteroPool(LFWBandit):
+    source_string = cvpr_params.string(cvpr_params.config_h_pool)
 
 class LFWBanditSGE(LFWBandit):
     @classmethod
@@ -823,13 +833,19 @@ def interpret_activ(filter, activ):
 
 def interpret_model(desc):
     for layer in desc:
-        for (opname,opparams) in layer:
+        for (ind,(opname,opparams)) in enumerate(layer):
+
             if opname == 'fbcorr_h':
                 kw = opparams['kwargs']
                 if hasattr(kw.get('min_out'),'keys'):
                     kw['min_out'] = interpret_activ(opparams, kw['min_out'])
                 if hasattr(kw.get('max_out'),'keys'):
                     kw['max_out'] = interpret_activ(opparams, kw['max_out'])
+            elif opname == 'lpool_h':
+                kw = opparams['kwargs']
+                if hasattr(kw.get('order'),'keys'):
+                    kw['order'] = interpret_activ(layer[0][1], kw['order'])
+
             if opname in ['fbcorr', 'fbcorr_h']:
                 init = opparams['initialize']
                 if init.has_key('filter_size'):

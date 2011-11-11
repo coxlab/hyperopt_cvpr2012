@@ -354,7 +354,7 @@ config_h_top = {'desc' : layers_h_top,'comparison' : comparison, 'activ': activ_
 import cPickle
 
 from Top5 import Top5
-      
+
 for t in Top5:
     t[1][0][1]['kwargs']['min_out'] = {'generate' : ('random:uniform',
                                                            {'rseed':42,
@@ -362,3 +362,24 @@ for t in Top5:
                                                            'delta':uniform(0,.3)})}
     t[1][0][0] = 'fbcorr_h'
 config_h_Top5 = {'desc': Top5[0], 'comparison' : comparison}
+
+
+lpool_h = {'kwargs': {'stride' : 2,
+          'ker_shape' : choice([(3,3),(5,5),(7,7),(9,9)]),
+          'order' : {'generate':('fixedvalues',{'values':[1,2,10]})}
+         }}
+
+layers_h_pool = [[('lnorm', lnorm)],
+            [('fbcorr', filter1),
+             ('lpool_h', lpool_h),
+             ('lnorm', lnorm)],
+            [('fbcorr', filter2),
+             ('lpool' , lpool),
+             ('lnorm' , lnorm)],
+            [('fbcorr', filter3),
+             ('lpool', lpool),
+             ('lnorm', lnorm)]
+           ]
+
+config_h_pool = {'desc': layers_h_pool, 'comparison' : comparison}
+
