@@ -370,6 +370,10 @@ class LFWBanditHetero4(LFWBandit):
     source_string = cvpr_params.string(cvpr_params.config_h4)  
 
 
+class LFWBanditHetero5(LFWBandit):
+    source_string = cvpr_params.string(cvpr_params.config_h5)  
+
+
 class LFWBanditSGE(LFWBandit):
     @classmethod
     def evaluate(cls, config, ctrl, use_theano=True):
