@@ -390,6 +390,9 @@ class LFWBanditHeteroTop(LFWBandit):
 class LFWBanditHeteroPool(LFWBandit):
     source_string = cvpr_params.string(cvpr_params.config_h_pool)
 
+class LFWBanditHeteroPool2(LFWBandit):
+    source_string = cvpr_params.string(cvpr_params.config_h_pool2).replace('u"','"').replace('None','null')
+
 class LFWBanditSGE(LFWBandit):
     @classmethod
     def evaluate(cls, config, ctrl, use_theano=True):

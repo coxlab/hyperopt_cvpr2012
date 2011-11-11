@@ -355,13 +355,14 @@ import cPickle
 
 from Top5 import Top5
 
-for t in Top5:
+Top5a = copy.deepcopy(Top5)
+for t in Top5a:
     t[1][0][1]['kwargs']['min_out'] = {'generate' : ('random:uniform',
                                                            {'rseed':42,
                                                            'mean':0,
                                                            'delta':uniform(0,.3)})}
     t[1][0][0] = 'fbcorr_h'
-config_h_Top5 = {'desc': Top5[0], 'comparison' : comparison}
+config_h_Top5 = {'desc': Top5a[0], 'comparison' : comparison}
 
 
 lpool_h = {'kwargs': {'stride' : 2,
@@ -383,3 +384,11 @@ layers_h_pool = [[('lnorm', lnorm)],
 
 config_h_pool = {'desc': layers_h_pool, 'comparison' : comparison}
 
+lpool_h2 =  {'generate':('fixedvalues',{'values':choice([[1],[2],[4],[10],[1,2],[1,10],[1,2,10],[1,2,4,10],[2,10]])})}
+
+
+Top5b = copy.deepcopy(Top5)
+for t in Top5b:
+    t[1][1][1]['kwargs']['order'] = lpool_h2
+    t[1][1][0] = 'lpool_h'
+config_h_pool2 = {'desc': Top5b[0], 'comparison' : comparison}
