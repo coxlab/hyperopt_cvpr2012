@@ -386,9 +386,26 @@ config_h_pool = {'desc': layers_h_pool, 'comparison' : comparison}
 
 lpool_h2 =  {'generate':('fixedvalues',{'values':choice([[1],[2],[4],[10],[1,2],[1,10],[1,2,10],[1,2,4,10],[2,10]])})}
 
+lpool_h3 = copy.deepcopy(lpool_h)
+lpool_h3['order'] = lpool_h2
 
 Top5b = copy.deepcopy(Top5)
 for t in Top5b:
     t[1][1][1]['kwargs']['order'] = lpool_h2
     t[1][1][0] = 'lpool_h'
 config_h_pool2 = {'desc': choice(Top5b), 'comparison' : comparison}
+
+
+layers_h_pool3 = [[('lnorm', lnorm)],
+            [('fbcorr', filter1),
+             ('lpool_h', lpool_h3),
+             ('lnorm', lnorm)],
+            [('fbcorr', filter2),
+             ('lpool' , lpool),
+             ('lnorm' , lnorm)],
+            [('fbcorr', filter3),
+             ('lpool', lpool),
+             ('lnorm', lnorm)]
+           ]
+
+config_h_pool3 = {'desc': layers_h_pool3, 'comparison' : comparison}
