@@ -432,3 +432,21 @@ layers_h_pool4 = [[('lnorm', lnorm)],
 config_h_pool4 = {'desc': layers_h_pool4, 'comparison' : comparison}
 
 
+Top5c = copy.deepcopy(Top5)
+for t in Top5c:
+    t[1][0][1]['kwargs']['min_out'] = {'generate' : ('random:uniform',
+                                                           {'rseed':42,
+                                                           'mean':0,
+                                                           'delta':uniform(0,.3)})}
+    t[1][0][0] = 'fbcorr_h'
+    t[2][0][1]['kwargs']['min_out'] = {'generate' : ('random:uniform',
+                                                           {'rseed':42,
+                                                           'mean':0,
+                                                           'delta':uniform(0,.3)})}
+    t[2][0][0] = 'fbcorr_h'
+    t[3][0][1]['kwargs']['min_out'] = {'generate' : ('random:uniform',
+                                                           {'rseed':42,
+                                                           'mean':0,
+                                                           'delta':uniform(0,.3)})}
+    t[3][0][0] = 'fbcorr_h'
+config_h_Top5c = {'desc': choice(Top5c), 'comparison' : comparison}
