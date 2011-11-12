@@ -409,3 +409,26 @@ layers_h_pool3 = [[('lnorm', lnorm)],
            ]
 
 config_h_pool3 = {'desc': layers_h_pool3, 'comparison' : comparison}
+
+lpool_h4o =  {'generate':('fixedvalues',{'values':choice([[uniform(1,5)],[uniform(1,5),
+                                                                          uniform(1,5)],
+                                                                         [uniform(1,5),uniform(1,5),uniform(1,5)]])})}
+
+lpool_h4 = copy.deepcopy(lpool_h)
+lpool_h4['order'] = lpool_h4o
+
+layers_h_pool4 = [[('lnorm', lnorm)],
+            [('fbcorr', filter1),
+             ('lpool_h', lpool_h4),
+             ('lnorm', lnorm)],
+            [('fbcorr', filter2),
+             ('lpool' , lpool),
+             ('lnorm' , lnorm)],
+            [('fbcorr', filter3),
+             ('lpool', lpool),
+             ('lnorm', lnorm)]
+           ]
+
+config_h_pool4 = {'desc': layers_h_pool4, 'comparison' : comparison}
+
+

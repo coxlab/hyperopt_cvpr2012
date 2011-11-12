@@ -396,6 +396,9 @@ class LFWBanditHeteroPool2(LFWBandit):
 class LFWBanditHeteroPool3(LFWBandit):
     source_string = cvpr_params.string(cvpr_params.config_h_pool3)
 
+class LFWBanditHeteroPool4(LFWBandit):
+    source_string = cvpr_params.string(cvpr_params.config_h_pool4)
+
 class LFWBanditSGE(LFWBandit):
     @classmethod
     def evaluate(cls, config, ctrl, use_theano=True):
