@@ -498,7 +498,8 @@ class LFWBanditEZSearch2(gb.GensonBandit):
                     stride=2,
                     ker_shape=choice([(3,3),(5,5),(7,7),(9,9)]),
                     order=choice([1, 2, 10, uniform(1, 10)])))
-        activ =  {'min_out' : choice([null,0]), 'max_out' : choice([1,null])}
+        activ =  {'min_out' : choice([null, uniform(-.5,.1)]), 
+                  'max_out' : choice([uniform(.9,1.5), null])}
 
         filter1 = dict(
                 initialize=dict(
@@ -507,7 +508,8 @@ class LFWBanditEZSearch2(gb.GensonBandit):
                     generate=choice([('random:uniform',
                                      {'rseed': choice([11, 12, 13, 14, 15])}),
                                      ('random:gabor',
-                                     {'min_wl': 2, 'max_wl': 20 , 'rseed': choice([11, 12, 13, 14, 15])})
+                                     {'min_wl': 2, 'max_wl': 20 , 
+                                      'rseed': choice([11, 12, 13, 14, 15])})
                                      ])),
                 kwargs=activ)
 
