@@ -507,9 +507,7 @@ class LFWBanditEZSearch2(gb.GensonBandit):
                     generate=choice([('random:uniform',
                                      {'rseed': choice([11, 12, 13, 14, 15])}),
                                      ('random:gabor',
-                                     ('min_wl',2),
-                                     ('max_wl',20),
-                                     {'rseed': choice([11, 12, 13, 14, 15])})
+                                     {'min_wl': 2, 'max_wl': 20 , 'rseed': choice([11, 12, 13, 14, 15])})
                                      ])),
                 kwargs=activ)
 
