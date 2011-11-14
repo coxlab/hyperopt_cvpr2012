@@ -697,8 +697,8 @@ class ExtractedFeatures(object):
                 t_cur = time.time() - t0
                 t_per_image = (time.time() - t0) / i
                 t_tot = t_per_image * X.shape[0]
-                if t_tot / 60.0 > 45:
-                    raise TooLongException(t_tot/60.0, 30)
+                if t_tot / 60.0 > 35:
+                    raise TooLongException(t_tot/60.0, 35)
                 print 'get_features_fp: %i / %i  mins: %.2f / %.2f ' % (
                         i , len(X),
                         t_cur / 60.0, t_tot / 60.0)
