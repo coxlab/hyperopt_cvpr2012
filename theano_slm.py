@@ -479,6 +479,76 @@ class LFWBanditEZSearch(gb.GensonBandit):
         return result
 
 
+class LFWBanditEZSearch2(gb.GensonBandit):
+    """
+    This Bandit has the same evaluate function as LFWBandit,
+    but the template is setup for more efficient search.
+    """
+    def __init__(self):
+        from cvpr_params import (
+                choice, uniform, gaussian, lognormal, ref, null, qlognormal)
+        lnorm = {'kwargs':{'inker_shape' : choice([(3,3),(5,5),(7,7),(9,9)]),
+                 'outker_shape' : ref('this','inker_shape'),
+                 'remove_mean' : choice([0,1]),
+                 'stretch' : lognormal(0, 1),
+                 'threshold' : lognormal(0, 1)
+                 }}
+        lpool = dict(
+                kwargs=dict(
+                    stride=2,
+                    ker_shape=choice([(3,3),(5,5),(7,7),(9,9)]),
+                    order=choice([1, 2, 10, uniform(1, 10)])))
+        activ =  {'min_out' : choice([null,0]), 'max_out' : choice([1,null])}
+
+        filter1 = dict(
+                initialize=dict(
+                    filter_shape=choice([(3,3),(5,5),(7,7),(9,9)]),
+                    n_filters=qlognormal(np.log(32), 1, round=16),
+                    generate=choice([('random:uniform',
+                                     {'rseed': choice([11, 12, 13, 14, 15])}),
+                                     ('random:gabor',
+                                     ('min_wl',2),
+                                     ('max_wl',20),
+                                     {'rseed': choice([11, 12, 13, 14, 15])})
+                                     ])),
+                kwargs=activ)
+
+        filter2 = dict(
+                initialize=dict(
+                    filter_shape=choice([(3, 3), (5, 5), (7, 7), (9, 9)]),
+                    n_filters=qlognormal(np.log(32), 1, round=16),
+                    generate=(
+                        'random:uniform',
+                        {'rseed': choice([21, 22, 23, 24, 25])})),
+                kwargs=activ)
+
+        filter3 = dict(
+                initialize=dict(
+                    filter_shape=choice([(3, 3), (5, 5), (7, 7), (9, 9)]),
+                    n_filters=qlognormal(np.log(32), 1, round=16),
+                    generate=(
+                        'random:uniform',
+                        {'rseed': choice([31, 32, 33, 34, 35])})),
+                kwargs=activ)
+
+        layers = [[('lnorm', lnorm)],
+                  [('fbcorr', filter1), ('lpool', lpool), ('lnorm', lnorm)],
+                  [('fbcorr', filter2), ('lpool', lpool), ('lnorm', lnorm)],
+                  [('fbcorr', filter3), ('lpool', lpool), ('lnorm', lnorm)]]
+
+        comparison = ['mult', 'absdiff', 'sqrtabsdiff', 'sqdiff']
+
+        config = {'desc' : layers, 'comparison' : comparison}
+        source_string = repr(config).replace("'",'"')
+        gb.GensonBandit.__init__(self, source_string=source_string)
+
+    @classmethod
+    def evaluate(cls, config, ctrl, use_theano=True):
+        result = get_performance(None, son_to_py(config), use_theano)
+        return result
+
+
+
 def get_performance(outfile, config, use_theano=True):
     import skdata.lfw
 
@@ -627,6 +697,8 @@ class ExtractedFeatures(object):
                 t_cur = time.time() - t0
                 t_per_image = (time.time() - t0) / i
                 t_tot = t_per_image * X.shape[0]
+                if t_tot / 60.0 > 45:
+                    raise TooLongException(t_tot/60.0, 30)
                 print 'get_features_fp: %i / %i  mins: %.2f / %.2f ' % (
                         i , len(X),
                         t_cur / 60.0, t_tot / 60.0)
@@ -716,6 +788,12 @@ class PairFeatures(object):
 
 class InvalidDescription(Exception):
     """Model description was invalid"""
+
+class TooLongException(Exception):
+    """model takes too long to evaluate"""
+    def msg(tot, cutoff):
+        return 'Would take too long to execute model (%f mins, but cutoff is %s mins)' % (tot, cutoff)
+       
 
 
 def dict_add(a, b):
