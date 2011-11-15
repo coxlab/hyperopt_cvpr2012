@@ -566,7 +566,7 @@ def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
 
     if isinstance(configs, dict):
         configs = [configs]
-        
+
     comparisons = DEFAULT_COMPARISONS
 
     assert all([hasattr(comp_module,comparison) for comparison in comparisons])
@@ -628,7 +628,8 @@ def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
             print('Doing comparison %s' % comparison)
             perf = []
             comparison_obj = getattr(comp_module,comparison)
-            n_features = comparison_obj.get_num_features(feature_shp)
+            #how does tricks interact with n_features, if at all?
+            n_features = sum([comparison_obj.get_num_features(f_shp) for f_shp in feature_shps])
             for train_split, test_split in test_train_splits:
                 with PairFeatures(dataset, train_split, Xr,
                         n_features, features_fps, comparison_obj,
@@ -741,7 +742,7 @@ class ExtractedFeatures(object):
                     shape=feature_shp)
                 self.features.append(feature_fp)
             else:
-                self.filename.append('')
+                self.filenames.append('')
                 self.features.append(features_fp)
 
     def __enter__(self):
