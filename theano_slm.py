@@ -548,8 +548,18 @@ class LFWBanditEZSearch2(gb.GensonBandit):
         return result
 
 
+def get_test_performance(outfile, config, use_theano=True, tricks=None):
 
-def get_performance(outfile, config, use_theano=True):
+    T = ['fold_' + str(i) for i in range(10)]
+    splits = [(T[:i] + T[i+1:], T[i]) for i in range(10)]
+    
+    return get_performance(outfile, config, train_test_splits=splits, 
+                           use_theano=use_theano, tricks=tricks, tlimit=None)
+    
+    
+
+def get_performance(outfile, config, train_test_splits=None, use_theano=True,
+                    tricks=None, tlimit=35):
     import skdata.lfw
 
     c_hash = get_config_string(config)
@@ -560,7 +570,13 @@ def get_performance(outfile, config, use_theano=True):
 
     dataset = skdata.lfw.Aligned()
 
-    X, y, Xr = get_relevant_images(dataset, dtype='float32')
+    if train_test_splits is None:
+        train_test_splits = [('retrain_0', 'retest_0')]
+
+    train_splits, test_splits = zip(*train_test_splits)
+    all_splits = test_splits + train_splits
+        
+    X, y, Xr = get_relevant_images(dataset, splits = all_splits, dtype='float32')
 
     batchsize = 4
 
@@ -594,23 +610,23 @@ def get_performance(outfile, config, use_theano=True):
 
     feature_shp = (X.shape[0],) + theano_slm.pythor_out_shape
 
-    num_splits = 1
+
     performance_comp = {}
     feature_file_name = 'features_' + c_hash + '.dat'
     train_pairs_filename = 'train_pairs_' + c_hash + '.dat'
     test_pairs_filename = 'test_pairs_' + c_hash + '.dat'
     with ExtractedFeatures(X, feature_shp, batchsize, slm,
-            feature_file_name) as features_fp:
+            feature_file_name, tlimit=tlimit) as features_fp:
         for comparison in comparisons:
             print('Doing comparison %s' % comparison)
             perf = []
             comparison_obj = getattr(comp_module,comparison)
             n_features = comparison_obj.get_num_features(feature_shp)
-            for split_id in range(num_splits):
-                with PairFeatures(dataset, 'train_' + str(split_id), Xr,
+            for train_split, test_split in test_train_splits:
+                with PairFeatures(dataset, train_split, Xr,
                         n_features, features_fp, comparison_obj,
-                                  train_pairs_filename) as train_Xy:
-                    with PairFeatures(dataset, 'test_' + str(split_id),
+                                  train_pairs_filename, tricks=tricks) as train_Xy:
+                    with PairFeatures(dataset, test_split,
                             Xr, n_features, features_fp, comparison_obj,
                                       test_pairs_filename) as test_Xy:
                         perf.append(train_classifier(config,
@@ -641,7 +657,7 @@ def use_memmap(size):
 
 
 class ExtractedFeatures(object):
-    def __init__(self, X, feature_shp, batchsize, slm, filename):
+    def __init__(self, X, feature_shp, batchsize, slm, filename, tlimit=35):
         """
         X - 4-tensor of images
         feature_shp - 4-tensor of output feature shape (len matches X)
@@ -697,8 +713,8 @@ class ExtractedFeatures(object):
                 t_cur = time.time() - t0
                 t_per_image = (time.time() - t0) / i
                 t_tot = t_per_image * X.shape[0]
-                if t_tot / 60.0 > 35:
-                    raise TooLongException(t_tot/60.0, 35)
+                if tlimit is not None and t_tot / 60.0 > tlimit:
+                    raise TooLongException(t_tot/60.0, tlimit)
                 print 'get_features_fp: %i / %i  mins: %.2f / %.2f ' % (
                         i , len(X),
                         t_cur / 60.0, t_tot / 60.0)
@@ -729,9 +745,22 @@ class PairFeatures(object):
         self.args = args
         self.kwargs = kwargs
 
-    def work(self, dataset, split, X, n_features,
-             feature_fp, comparison_obj, filename):
-        A, B, labels = dataset.raw_verification_task_resplit(split=split)
+    def work(self, dset, split, X, n_features,
+             feature_fp, comparison_obj, filename, tricks=None):
+    
+        if isinstance(split, str):
+            split = [split]
+        A = []
+        B = []
+        labels = []
+        for s in split:
+			if s.startswith('re'):
+				A0, B0, labels0 = dset.raw_verification_task_resplit(split=s[2:])
+			else:
+				A0, B0, labels0 = dset.raw_verification_task(split=s)
+			A.extend(A0)
+			B.extend(B0)
+			labels.extend(labels0)
         Ar = np.array([os.path.split(ar)[-1] for ar in A])
         Br = np.array([os.path.split(br)[-1] for br in B])
         Aind = np.searchsorted(X, Ar)
@@ -857,20 +886,40 @@ class ImgLoaderResizer(object):
         return rval
 
 
-def get_relevant_images(dataset, dtype='uint8'):
+def unroll(X):
+    Y = []
+    for x in X:
+        if isinstance(x,str):
+            Y.append(x)
+        else:
+            Y.extend(x)
+    return np.unique(Y)
+
+
+def get_relevant_images(dataset, splits=None, dtype='uint8'):
     # load & resize logic is LFW Aligned -specific
     assert 'Aligned' in str(dataset.__class__)
 
+    
     Xr, yr = dataset.raw_classification_task()
     Xr = np.array(Xr)
 
-    Atr, Btr, c = dataset.raw_verification_task_resplit(split='train_0')
-    Ate, Bte, c = dataset.raw_verification_task_resplit(split='test_0')
-    all_images = np.unique(np.concatenate([Atr,Btr,Ate,Bte]))
-
-    inds = np.searchsorted(Xr, all_images)
-    Xr = Xr[inds]
-    yr = yr[inds]
+    if splits is not None:
+        splits = unroll(splits)
+        
+    if splits is not None:
+        all_images = []
+        for s in splits:		
+			if s.startswith('re'):
+				A, B, c = dataset.raw_verification_task_resplit(split=s[2:])
+			else:
+				A, B, c = dataset.raw_verification_task(split=s)
+			all_images.extend([A,B])
+        all_images = np.unique(np.concatenate(all_images))
+    
+        inds = np.searchsorted(Xr, all_images)
+        Xr = Xr[inds]
+        yr = yr[inds]        
 
     X = skdata.larray.lmap(
                 ImgLoaderResizer(
@@ -881,6 +930,7 @@ def get_relevant_images(dataset, dtype='uint8'):
     Xr = np.array([os.path.split(x)[-1] for x in Xr])
 
     return X, yr, Xr
+
 
 def flatten(x):
     return list(itertools.chain(*x))
