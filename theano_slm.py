@@ -57,9 +57,10 @@ class TheanoSLM(object):
     SequentialLayeredModel clone implemented with Theano
     """
 
-    def __init__(self, in_shape, description,
+    def __init__(self, in_shape, description, feed_up=False,
             dtype='float32', rng=888):
 
+        self.feed_up = feed_up
         # -- transpose shape to theano-convention (channel major)
 
         if len(in_shape) == 2:
@@ -99,6 +100,8 @@ class TheanoSLM(object):
         self.rng = np.random.RandomState(rng)  # XXX check for rng being int
 
         x = self.s_input
+        self.s_output_layers = []
+        self.pythor_output_shape_layers = []
         x_shp = self.theano_in_shape
         for layer_idx, layer_desc in enumerate(description):
             for op_name, op_params in layer_desc:
@@ -108,7 +111,11 @@ class TheanoSLM(object):
                             op_params.get('initialize', {}))
                 x, x_shp = init_fn(x, x_shp, **_D)
                 print 'TheanoSLM added layer', op_name, 'shape', x_shp
-
+            self.s_output_layers.append(x)
+            self.pythor_out_shape_layers.append((x_shp[2], 
+                                                     x_shp[3],
+                                                     x_shp[1]))
+                
         if 0 == np.prod(x_shp):
             raise InvalidDescription()
 
@@ -295,25 +302,41 @@ class TheanoSLM(object):
                 allow_input_downcast=True)
         return fn
 
+    def get_theano_layers_fn(self):
+        try:
+            fn = self._fn_layers
+        except AttributeError:
+            fn = self._fn_layers = theano.function([self.s_input], self.s_output_layers,
+                allow_input_downcast=True)
+        return fn
+
     def process_batch(self, arr_in):
-        fn = self.get_theano_fn()
+        if self.feed_up:
+            fn = self.get_theano_layers_fn()
+        else:
+            fn = self.get_theano_fn()
         if arr_in.ndim == 4:
             channel_major_in = arr_in.transpose(0, 3, 1, 2)
         elif arr_in.ndim == 3:
             channel_major_in = arr_in[:,:,:,None].transpose(0, 3, 1, 2)
         else:
             raise NotImplementedError()
-        return fn(channel_major_in).transpose(0, 2, 3, 1)
+        if self.feed_up:
+            return [_r.transpose(0,2,3,1) _r in fn(channel_major_in)]
+        else:
+            return [fn(channel_major_in).transpose(0, 2, 3, 1)]
 
     def process(self, arr_in):
         """Return something like SequentialLayeredModel would have
         """
-        rval = self.process_batch(arr_in[None,None,:,:])[0]
-        if rval.shape[2] == 1:
-            # -- drop the colour channel for single-channel images
-            return rval[:, :, 0]
-        else:
-            return rval
+        rval_list = [_r[0] for _r in self.process_batch(arr_in[None,None,:,:])]
+
+        for (ind, rval) in enumerate(rval_list):
+            if rval.shape[2] == 1:
+                # -- drop the colour channel for single-channel images
+                rval_list[ind] = rval[:, :, 0]
+        
+        return rval_list
 
 
 def train_classifier(config, train_Xy, test_Xy, n_features):
@@ -587,15 +610,16 @@ def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
     feature_shps = []
     for config in configs:
         desc = copy.deepcopy(config['desc'])
+        feed_up = config.get('feed_up', False)
         interpret_model(desc)
         if X.ndim == 3:
             theano_slm = TheanoSLM(
                     in_shape=(batchsize,) + X.shape[1:] + (1,),
-                    description=desc)
+                    description=desc, feed_up=feed_up)
         elif X.ndim == 4:
             theano_slm = TheanoSLM(
                     in_shape=(batchsize,) + X.shape[1:],
-                    description=desc)
+                    description=desc, feed_up=feed_up)
         else:
             raise NotImplementedError()
     
@@ -615,22 +639,25 @@ def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
                                          }})
             
         slms.append(slm)
-        feature_shp = (X.shape[0],) + theano_slm.pythor_out_shape
+        if slm.feed_up:
+            feature_shp = [(X.shape[0],) + _s for _s in theano_slm.pythor_out_shape_layers]
+        else:
+            feature_shp = [(X.shape[0],) + theano_slm.pythor_out_shape]
         feature_shps.append(feature_shp)
 
     performance_comp = {}
-    feature_file_names = ['features_' + c_hash + '_' + str(i) +  '.dat' for i in range(len(slms))]
+    feature_file_root = 'features_' + c_hash
     train_pairs_filename = 'train_pairs_' + c_hash + '.dat'
     test_pairs_filename = 'test_pairs_' + c_hash + '.dat'
     with ExtractedFeatures(X, feature_shps, batchsize, slms,
-            feature_file_names, tlimit=tlimit) as features_fps:
+            feature_file_root, tlimit=tlimit) as features_fps:
         for comparison in comparisons:
             print('Doing comparison %s' % comparison)
             perf = []
             comparison_obj = getattr(comp_module,comparison)
             #how does tricks interact with n_features, if at all?
-            n_features = sum([comparison_obj.get_num_features(f_shp) for f_shp in feature_shps])
-            for train_split, test_split in test_train_splits:
+            n_features = sum([sum([comparison_obj.get_num_features(fs) for fs in f_shp]) for f_shp in feature_shps])
+            for train_split, test_split in train_test_splits:
                 with PairFeatures(dataset, train_split, Xr,
                         n_features, features_fps, comparison_obj,
                                   train_pairs_filename, tricks=tricks) as train_Xy:
@@ -647,6 +674,7 @@ def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
             loss=performance,
             loss_variance=performance * (1 - performance) / n_test_examples,
             performances=performance_comp,
+            feature_shp=feature_shp,
             status='ok')
 
     if outfile is not None:
@@ -665,7 +693,7 @@ def use_memmap(size):
 
 
 class ExtractedFeatures(object):
-    def __init__(self, X, feature_shps, batchsize, slms, filenames, tlimit=35):
+    def __init__(self, X, feature_shps, batchsize, slms, file_root, tlimit=35):
         """
         X - 4-tensor of images
         feature_shp - 4-tensor of output feature shape (len matches X)
@@ -679,71 +707,77 @@ class ExtractedFeatures(object):
         self.filenames = []
         self.features = []
         
-        for feature_shp, filename, slm in zip(feature_shps, filenames, slms):
-            size = 4 * np.prod(feature_shp)
-            print('Total size: %i bytes (%.2f GB)' % (size, size / float(1e9)))
-            memmap = use_memmap(size)
-            if memmap:
-                print('Creating memmap %s for features of shape %s' % (
-                                                      filename, str(feature_shp)))
-                features_fp = np.memmap(filename,
-                    dtype='float32',
-                    mode='w+',
-                    shape=feature_shp)
-            else:
-                print('Using memory for features of shape %s' % str(feature_shp))
-                features_fp = np.empty(feature_shp,dtype='float32')
-    
-            if TEST:
-                print('TESTING')
-    
-            i = 0
-            t0 = time.time()
-            while not TEST or i < 10:
-                if i + batchsize >= len(X):
-                    assert i < len(X)
-                    xi = np.asarray(X[-batchsize:])
-                    done = True
-                else:
-                    xi = np.asarray(X[i:i+batchsize])
-                    done = False
-                t1 = time.time()
-                feature_batch = slm.process_batch(xi)
-                if TEST:
-                    print('compute: ', time.time() - t1)
-                t2 = time.time()
-                delta = max(0, i + batchsize - len(X))
-                assert np.all(np.isfinite(feature_batch))
-                features_fp[i:i+batchsize-delta] = feature_batch[delta:]
-                if TEST:
-                    print('write: ', time.time() - t2)
-                if done:
-                    break
-    
-                i += batchsize
-                if (i // batchsize) % 50 == 0:
-                    t_cur = time.time() - t0
-                    t_per_image = (time.time() - t0) / i
-                    t_tot = t_per_image * X.shape[0]
-                    if tlimit is not None and t_tot / 60.0 > tlimit:
-                        raise TooLongException(t_tot/60.0, tlimit)
-                    print 'get_features_fp: %i / %i  mins: %.2f / %.2f ' % (
-                            i , len(X),
-                            t_cur / 60.0, t_tot / 60.0)
-            # -- docs hers:
-            #    http://docs.scipy.org/doc/numpy/reference/generated/numpy.memmap.html
-            #    say that deletion is the way to flush changes !?
-            if memmap:
-                del features_fp
-                self.filenames.append(filename)
-                features_fp = np.memmap(filename,
-                    dtype='float32',
-                    mode='r',
-                    shape=feature_shp)
-                self.features.append(feature_fp)
-            else:
-                self.filenames.append('')
-                self.features.append(features_fp)
+        for (ind_1, (fs, slm) in enumerate(zip(feature_shps, slms)):
+            fnames = []
+            fps = []
+            memmaps = []
+            for (ind_2, feature_shp) in enumerate(fs): 
+				size = 4 * np.prod(feature_shp)
+				print('Total size: %i bytes (%.2f GB)' % (size, size / float(1e9)))
+				memmap = use_memmap(size)
+				memmaps.append(memmap)
+				if memmap:
+				    filename = file_root + '_' + str(ind_1) + '_' + str(ind_2) + '.dat'
+    				print('Creating memmap %s for features of shape %s' % (
+														  filename, str(feature_shp)))
+					features_fp = np.memmap(filename,
+						dtype='float32',
+						mode='w+',
+						shape=feature_shp)
+				else:
+					print('Using memory for features of shape %s' % str(feature_shp))
+					features_fp = np.empty(feature_shp,dtype='float32')
+					filename = ''
+				fnames.append(filename)
+				fps.append(features_fp
+	
+			if TEST:
+				print('TESTING')
+	
+			i = 0
+			t0 = time.time()
+			while not TEST or i < 10:
+				if i + batchsize >= len(X):
+					assert i < len(X)
+					xi = np.asarray(X[-batchsize:])
+					done = True
+				else:
+					xi = np.asarray(X[i:i+batchsize])
+					done = False
+				t1 = time.time()
+				feature_batch = slm.process_batch(xi)
+				if TEST:
+					print('compute: ', time.time() - t1)
+				t2 = time.time()
+				delta = max(0, i + batchsize - len(X))
+				assert np.all(np.isfinite(feature_batch))
+				for (features_fp, feature_layer) in zip(fps, feature_batch):
+    				features_fp[i:i+batchsize-delta] = feature_layer[delta:]
+				if TEST:
+					print('write: ', time.time() - t2)
+				if done:
+					break
+	
+				i += batchsize
+				if (i // batchsize) % 50 == 0:
+					t_cur = time.time() - t0
+					t_per_image = (time.time() - t0) / i
+					t_tot = t_per_image * X.shape[0]
+					if tlimit is not None and t_tot / 60.0 > tlimit:
+						raise TooLongException(t_tot/60.0, tlimit)
+					print 'get_features_fp: %i / %i  mins: %.2f / %.2f ' % (
+							i , len(X),
+							t_cur / 60.0, t_tot / 60.0)
+               
+		    for (ind, (filename, features_fp, memmap)) in enumerate(zip(fnames, fps, memmaps)):   
+				self.filenames.append(filename)
+				if memmap:
+					del features_fp
+					features_fp = np.memmap(filename,
+						dtype='float32',
+						mode='r',
+						shape=feature_shp)
+				self.features.append(features_fp)
 
     def __enter__(self):
         return self.features
