@@ -562,7 +562,7 @@ def get_test_performance(outfile, config, use_theano=True, flip_lr=False):
     
 
 def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
-                    flip_lr=flip_lr, tlimit=35):
+                    flip_lr=False, tlimit=35):
     import skdata.lfw
 
     c_hash = get_config_string(configs)
