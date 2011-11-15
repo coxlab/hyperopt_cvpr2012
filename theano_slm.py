@@ -551,26 +551,25 @@ class LFWBanditEZSearch2(gb.GensonBandit):
         return result
 
 
-def get_test_performance(outfile, config, use_theano=True, flip_lr=False):
+def get_test_performance(outfile, config, use_theano=True, flip_lr=False, comparisons=DEFAULT_COMPARISONS):
 
     T = ['fold_' + str(i) for i in range(10)]
     splits = [(T[:i] + T[i+1:], T[i]) for i in range(10)]
     
     return get_performance(outfile, config, train_test_splits=splits, 
-                           use_theano=use_theano, flip_lr=flip_lr, tlimit=None)
+                           use_theano=use_theano, flip_lr=flip_lr, tlimit=None,
+                           comparisons=comparisons)
     
     
 
 def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
-                    flip_lr=False, tlimit=35):
+                    flip_lr=False, tlimit=35, comparisons=DEFAULT_COMPARISONS):
     import skdata.lfw
 
     c_hash = get_config_string(configs)
 
     if isinstance(configs, dict):
         configs = [configs]
-
-    comparisons = DEFAULT_COMPARISONS
 
     assert all([hasattr(comp_module,comparison) for comparison in comparisons])
 
