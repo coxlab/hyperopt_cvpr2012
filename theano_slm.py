@@ -743,7 +743,7 @@ class ExtractedFeatures(object):
                     dtype='float32',
                     mode='r',
                     shape=feature_shp)
-                self.features.append(feature_fp)
+                self.features.append(features_fp)
             else:
                 self.filenames.append('')
                 self.features.append(features_fp)
