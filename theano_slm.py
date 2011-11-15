@@ -551,18 +551,18 @@ class LFWBanditEZSearch2(gb.GensonBandit):
         return result
 
 
-def get_test_performance(outfile, config, use_theano=True, tricks=None):
+def get_test_performance(outfile, config, use_theano=True, flip_lr=False):
 
     T = ['fold_' + str(i) for i in range(10)]
     splits = [(T[:i] + T[i+1:], T[i]) for i in range(10)]
     
     return get_performance(outfile, config, train_test_splits=splits, 
-                           use_theano=use_theano, tricks=tricks, tlimit=None)
+                           use_theano=use_theano, flip_lr=flip_lr, tlimit=None)
     
     
 
 def get_performance(outfile, config, train_test_splits=None, use_theano=True,
-                    tricks=None, tlimit=35):
+                    flip_lr=flip_lr, tlimit=35):
     import skdata.lfw
 
     c_hash = get_config_string(config)
@@ -628,7 +628,7 @@ def get_performance(outfile, config, train_test_splits=None, use_theano=True,
             for train_split, test_split in test_train_splits:
                 with PairFeatures(dataset, train_split, Xr,
                         n_features, features_fp, comparison_obj,
-                                  train_pairs_filename, tricks=tricks) as train_Xy:
+                                  train_pairs_filename, flip_lr=flip_lr) as train_Xy:
                     with PairFeatures(dataset, test_split,
                             Xr, n_features, features_fp, comparison_obj,
                                       test_pairs_filename) as test_Xy:
@@ -749,8 +749,8 @@ class PairFeatures(object):
         self.kwargs = kwargs
 
     def work(self, dset, split, X, n_features,
-             feature_fp, comparison_obj, filename, tricks=None):
-    
+             feature_fp, comparison_obj, filename, flip_lr=False):
+
         if isinstance(split, str):
             split = [split]
         A = []
@@ -772,6 +772,9 @@ class PairFeatures(object):
         assert len(Aind) == len(Bind)
         pair_shp = (len(labels), n_features)
 
+        if flip_lr:
+            pair_shp = (4 * pair_shp[0], pair_shp[1])
+
         size = 4 * np.prod(pair_shp)
         print('Total size: %i bytes (%.2f GB)' % (size, size / float(1e9)))
         memmap = use_memmap(size)
@@ -782,13 +785,31 @@ class PairFeatures(object):
                                     dtype='float32',
                                     mode='w+',
                                     shape=pair_shp)
+            feature_labels = []
         else:
             print('using memory for features of shape %s' % str(pair_shp))
             feature_pairs_fp = np.empty(pair_shp, dtype='float32')
 
         for (ind,(ai, bi)) in enumerate(zip(Aind, Bind)):
-            feature_pairs_fp[ind] = comparison_obj(feature_fp[ai],
-                                                   feature_fp[bi])
+            # -- this flattens 3D features to 1D features
+            if flip_lr:
+                feature_pairs_fp[4 * ind + 0] = comparison_obj(
+                        feature_fp[ai, :, :, :],
+                        feature_fp[bi, :, :, :])
+                feature_pairs_fp[4 * ind + 1] = comparison_obj(
+                        feature_fp[ai, :, :, :],
+                        feature_fp[bi, :, ::-1, :])
+                feature_pairs_fp[4 * ind + 2] = comparison_obj(
+                        feature_fp[ai, :, ::-1, :],
+                        feature_fp[bi, :, :, :])
+                feature_pairs_fp[4 * ind + 3] = comparison_obj(
+                        feature_fp[ai, :, ::-1, :],
+                        feature_fp[bi, :, ::-1, :])
+                feature_labels.extend([labels[ind]] * 4)
+            else:
+                feature_pairs_fp[ind] = comparison_obj(feature_fp[ai],
+                                                       feature_fp[bi])
+                feature_labels.append(labels[ind])
             if ind % 100 == 0:
                 print('get_pair_fp  %i / %i' % (ind, len(Aind)))
 
@@ -805,7 +826,7 @@ class PairFeatures(object):
             self.features = feature_pairs_fp
             self.filename = ''
 
-        self.labels = labels
+        self.labels = feature_labels
 
     def __enter__(self):
         self.work(*self.args, **self.kwargs)
