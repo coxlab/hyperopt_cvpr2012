@@ -259,12 +259,7 @@ class TheanoSLM(object):
         kwargs['order'] = get_into_shape(order)
         return self.init_lpool(x, x_shp, **kwargs)
 
-    def init_lpool(self, x, x_shp,
-            ker_shape=(3, 3),
-            order=1,
-            stride=1,
-            mode='valid'):
-
+    def lpool_euclidean(self, x, x_shp, order, ker_shape):
         if hasattr(order, '__iter__'):
             o1 = (order == 1).all()
             o2 = (order == order.astype(np.int)).all()
@@ -281,10 +276,37 @@ class TheanoSLM(object):
             r, r_shp = self.boxconv(abs(x) ** order, x_shp, ker_shape)
             r = tensor.maximum(r, 0) ** (1.0 / order)
 
-        if stride > 1:
-            r = r[:, :, ::stride, ::stride]
-            # intdiv is tricky... so just use numpy
-            r_shp = np.empty(r_shp)[:, :, ::stride, ::stride].shape
+        return r, r_shp
+    
+    def lpool_percentile(self, x, x_shp, percentile, ker_shape):
+        #something calling theano op wrapping scipy.ndimage.filters.percentile_filter
+        pass
+    
+    def imresize(self, x, x_shp, rescale):
+        #something calling theano op wrapping scipy.ndimage.interpoliation.affine_transform
+        pass
+
+    def init_lpool(self, x, x_shp,
+            ker_shape=(3, 3),
+            order=1,
+            percentile=None,
+            stride=1,
+            rescale=None,
+            mode='valid'):
+            
+        if percentile is not None:
+            r, r_shp = self.lpool_percentile(x, x_shp, percentile, ker_shape)
+        else:
+            r, r_shp = self.lpool_euclidean(x, x_shp, order, ker_shape)
+            
+        if rescale is not None:
+            r, r_shp = self.imresize(r, r_shp, rescale)
+        else:
+            assert isinstance(stride,int)
+            if stride > 1:
+                r = r[:, :, ::stride, ::stride]
+                # intdiv is tricky... so just use numpy
+                r_shp = np.empty(r_shp)[:, :, ::stride, ::stride].shape
         return r, r_shp
 
     def get_theano_fn(self):
