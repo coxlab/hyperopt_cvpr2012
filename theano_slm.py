@@ -475,7 +475,7 @@ class LFWBanditEZSearch(gb.GensonBandit):
 
     @classmethod
     def evaluate(cls, config, ctrl, use_theano=True):
-        result = get_performance(None, son_to_py(config), use_theano)
+        result = get_performance(None, son_to_py(config), use_theano=use_theano)
         return result
 
 
@@ -544,7 +544,7 @@ class LFWBanditEZSearch2(gb.GensonBandit):
 
     @classmethod
     def evaluate(cls, config, ctrl, use_theano=True):
-        result = get_performance(None, son_to_py(config), use_theano)
+        result = get_performance(None, son_to_py(config), use_theano=use_theano)
         return result
 
 
@@ -558,13 +558,16 @@ def get_test_performance(outfile, config, use_theano=True, tricks=None):
     
     
 
-def get_performance(outfile, config, train_test_splits=None, use_theano=True,
+def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
                     tricks=None, tlimit=35):
     import skdata.lfw
 
-    c_hash = get_config_string(config)
+    c_hash = get_config_string(configs)
 
-    comparisons = config.get('comparisons',DEFAULT_COMPARISONS)
+    if isinstance(configs, dict):
+        configs = [configs]
+        
+    comparisons = DEFAULT_COMPARISONS
 
     assert all([hasattr(comp_module,comparison) for comparison in comparisons])
 
@@ -580,43 +583,47 @@ def get_performance(outfile, config, train_test_splits=None, use_theano=True,
 
     batchsize = 4
 
-    desc = copy.deepcopy(config['desc'])
-    interpret_model(desc)
-    if X.ndim == 3:
-        theano_slm = TheanoSLM(
-                in_shape=(batchsize,) + X.shape[1:] + (1,),
-                description=desc)
-    elif X.ndim == 4:
-        theano_slm = TheanoSLM(
-                in_shape=(batchsize,) + X.shape[1:],
-                description=desc)
-    else:
-        raise NotImplementedError()
-
-    if use_theano:
-        slm = theano_slm
-        # -- pre-compile the function to not mess up timing
-        slm.get_theano_fn()
-    else:
-        cthor_sse = {'plugin':'cthor', 'plugin_kwargs':{'variant':'sse'}}
-        cthor = {'plugin':'cthor', 'plugin_kwargs':{}}
-        slm = SequentialLayeredModel(X.shape[1:], desc,
-                                     plugin='passthrough',
-                                     plugin_kwargs={'plugin_mapping': {
-                                         'fbcorr': cthor,
-                                          'lnorm' : cthor,
-                                          'lpool' : cthor,
-                                     }})
-
-    feature_shp = (X.shape[0],) + theano_slm.pythor_out_shape
-
+    slms = []
+    feature_shps = []
+    for config in configs:
+        desc = copy.deepcopy(config['desc'])
+        interpret_model(desc)
+        if X.ndim == 3:
+            theano_slm = TheanoSLM(
+                    in_shape=(batchsize,) + X.shape[1:] + (1,),
+                    description=desc)
+        elif X.ndim == 4:
+            theano_slm = TheanoSLM(
+                    in_shape=(batchsize,) + X.shape[1:],
+                    description=desc)
+        else:
+            raise NotImplementedError()
+    
+        if use_theano:
+            slm = theano_slm
+            # -- pre-compile the function to not mess up timing
+            slm.get_theano_fn()
+        else:
+            cthor_sse = {'plugin':'cthor', 'plugin_kwargs':{'variant':'sse'}}
+            cthor = {'plugin':'cthor', 'plugin_kwargs':{}}
+            slm = SequentialLayeredModel(X.shape[1:], desc,
+                                         plugin='passthrough',
+                                         plugin_kwargs={'plugin_mapping': {
+                                             'fbcorr': cthor,
+                                              'lnorm' : cthor,
+                                              'lpool' : cthor,
+                                         }})
+            
+        slms.append(slm)
+        feature_shp = (X.shape[0],) + theano_slm.pythor_out_shape
+        feature_shps.append(feature_shp)
 
     performance_comp = {}
-    feature_file_name = 'features_' + c_hash + '.dat'
+    feature_file_names = ['features_' + c_hash + '_' + str(i) +  '.dat' for i in range(len(slms))]
     train_pairs_filename = 'train_pairs_' + c_hash + '.dat'
     test_pairs_filename = 'test_pairs_' + c_hash + '.dat'
-    with ExtractedFeatures(X, feature_shp, batchsize, slm,
-            feature_file_name, tlimit=tlimit) as features_fp:
+    with ExtractedFeatures(X, feature_shps, batchsize, slms,
+            feature_file_names, tlimit=tlimit) as features_fps:
         for comparison in comparisons:
             print('Doing comparison %s' % comparison)
             perf = []
@@ -624,10 +631,10 @@ def get_performance(outfile, config, train_test_splits=None, use_theano=True,
             n_features = comparison_obj.get_num_features(feature_shp)
             for train_split, test_split in test_train_splits:
                 with PairFeatures(dataset, train_split, Xr,
-                        n_features, features_fp, comparison_obj,
+                        n_features, features_fps, comparison_obj,
                                   train_pairs_filename, tricks=tricks) as train_Xy:
                     with PairFeatures(dataset, test_split,
-                            Xr, n_features, features_fp, comparison_obj,
+                            Xr, n_features, features_fps, comparison_obj,
                                       test_pairs_filename) as test_Xy:
                         perf.append(train_classifier(config,
                                     train_Xy, test_Xy, n_features))
@@ -657,7 +664,7 @@ def use_memmap(size):
 
 
 class ExtractedFeatures(object):
-    def __init__(self, X, feature_shp, batchsize, slm, filename, tlimit=35):
+    def __init__(self, X, feature_shps, batchsize, slms, filenames, tlimit=35):
         """
         X - 4-tensor of images
         feature_shp - 4-tensor of output feature shape (len matches X)
@@ -667,77 +674,83 @@ class ExtractedFeatures(object):
 
         returns - read-only memmap of features
         """
-
-        size = 4 * np.prod(feature_shp)
-        print('Total size: %i bytes (%.2f GB)' % (size, size / float(1e9)))
-        memmap = use_memmap(size)
-        if memmap:
-            print('Creating memmap %s for features of shape %s' % (
-                                                  filename, str(feature_shp)))
-            features_fp = np.memmap(filename,
-                dtype='float32',
-                mode='w+',
-                shape=feature_shp)
-        else:
-            print('Using memory for features of shape %s' % str(feature_shp))
-            features_fp = np.empty(feature_shp,dtype='float32')
-
-        if TEST:
-            print('TESTING')
-
-        i = 0
-        t0 = time.time()
-        while not TEST or i < 10:
-            if i + batchsize >= len(X):
-                assert i < len(X)
-                xi = np.asarray(X[-batchsize:])
-                done = True
+        
+        self.filenames = []
+        self.features = []
+        
+        for feature_shp, filename, slm in zip(feature_shps, filenames, slms):
+            size = 4 * np.prod(feature_shp)
+            print('Total size: %i bytes (%.2f GB)' % (size, size / float(1e9)))
+            memmap = use_memmap(size)
+            if memmap:
+                print('Creating memmap %s for features of shape %s' % (
+                                                      filename, str(feature_shp)))
+                features_fp = np.memmap(filename,
+                    dtype='float32',
+                    mode='w+',
+                    shape=feature_shp)
             else:
-                xi = np.asarray(X[i:i+batchsize])
-                done = False
-            t1 = time.time()
-            feature_batch = slm.process_batch(xi)
+                print('Using memory for features of shape %s' % str(feature_shp))
+                features_fp = np.empty(feature_shp,dtype='float32')
+    
             if TEST:
-                print('compute: ', time.time() - t1)
-            t2 = time.time()
-            delta = max(0, i + batchsize - len(X))
-            assert np.all(np.isfinite(feature_batch))
-            features_fp[i:i+batchsize-delta] = feature_batch[delta:]
-            if TEST:
-                print('write: ', time.time() - t2)
-            if done:
-                break
-
-            i += batchsize
-            if (i // batchsize) % 50 == 0:
-                t_cur = time.time() - t0
-                t_per_image = (time.time() - t0) / i
-                t_tot = t_per_image * X.shape[0]
-                if tlimit is not None and t_tot / 60.0 > tlimit:
-                    raise TooLongException(t_tot/60.0, tlimit)
-                print 'get_features_fp: %i / %i  mins: %.2f / %.2f ' % (
-                        i , len(X),
-                        t_cur / 60.0, t_tot / 60.0)
-        # -- docs hers:
-        #    http://docs.scipy.org/doc/numpy/reference/generated/numpy.memmap.html
-        #    say that deletion is the way to flush changes !?
-        if memmap:
-            del features_fp
-            self.filename = filename
-            self.features = np.memmap(filename,
-                dtype='float32',
-                mode='r',
-                shape=feature_shp)
-        else:
-            self.filename = ''
-            self.features = features_fp
+                print('TESTING')
+    
+            i = 0
+            t0 = time.time()
+            while not TEST or i < 10:
+                if i + batchsize >= len(X):
+                    assert i < len(X)
+                    xi = np.asarray(X[-batchsize:])
+                    done = True
+                else:
+                    xi = np.asarray(X[i:i+batchsize])
+                    done = False
+                t1 = time.time()
+                feature_batch = slm.process_batch(xi)
+                if TEST:
+                    print('compute: ', time.time() - t1)
+                t2 = time.time()
+                delta = max(0, i + batchsize - len(X))
+                assert np.all(np.isfinite(feature_batch))
+                features_fp[i:i+batchsize-delta] = feature_batch[delta:]
+                if TEST:
+                    print('write: ', time.time() - t2)
+                if done:
+                    break
+    
+                i += batchsize
+                if (i // batchsize) % 50 == 0:
+                    t_cur = time.time() - t0
+                    t_per_image = (time.time() - t0) / i
+                    t_tot = t_per_image * X.shape[0]
+                    if tlimit is not None and t_tot / 60.0 > tlimit:
+                        raise TooLongException(t_tot/60.0, tlimit)
+                    print 'get_features_fp: %i / %i  mins: %.2f / %.2f ' % (
+                            i , len(X),
+                            t_cur / 60.0, t_tot / 60.0)
+            # -- docs hers:
+            #    http://docs.scipy.org/doc/numpy/reference/generated/numpy.memmap.html
+            #    say that deletion is the way to flush changes !?
+            if memmap:
+                del features_fp
+                self.filenames.append(filename)
+                features_fp = np.memmap(filename,
+                    dtype='float32',
+                    mode='r',
+                    shape=feature_shp)
+                self.features.append(feature_fp)
+            else:
+                self.filename.append('')
+                self.features.append(features_fp)
 
     def __enter__(self):
         return self.features
 
     def __exit__(self, *args):
-        if self.filename:
-            os.remove(self.filename)
+        for filename in self.filenames:
+            if filename:
+                os.remove(filename)
 
 
 class PairFeatures(object):
@@ -746,7 +759,7 @@ class PairFeatures(object):
         self.kwargs = kwargs
 
     def work(self, dset, split, X, n_features,
-             feature_fp, comparison_obj, filename, tricks=None):
+             feature_fps, comparison_obj, filename, tricks=None):
     
         if isinstance(split, str):
             split = [split]
@@ -754,14 +767,14 @@ class PairFeatures(object):
         B = []
         labels = []
         for s in split:
-			if s.startswith('re'):
-			    s = s[2:]
-				A0, B0, labels0 = dset.raw_verification_task_resplit(split=s)
-			else:
-				A0, B0, labels0 = dset.raw_verification_task(split=s)
-			A.extend(A0)
-			B.extend(B0)
-			labels.extend(labels0)
+            if s.startswith('re'):
+                s = s[2:]
+                A0, B0, labels0 = dset.raw_verification_task_resplit(split=s)
+            else:
+                A0, B0, labels0 = dset.raw_verification_task(split=s)
+            A.extend(A0)
+            B.extend(B0)
+            labels.extend(labels0)
         Ar = np.array([os.path.split(ar)[-1] for ar in A])
         Br = np.array([os.path.split(br)[-1] for br in B])
         Aind = np.searchsorted(X, Ar)
@@ -784,8 +797,8 @@ class PairFeatures(object):
             feature_pairs_fp = np.empty(pair_shp, dtype='float32')
 
         for (ind,(ai, bi)) in enumerate(zip(Aind, Bind)):
-            feature_pairs_fp[ind] = comparison_obj(feature_fp[ai],
-                                                   feature_fp[bi])
+            feats = [comparison_obj(fp[ai],fp[bi]) for fp in features_fps]
+            feature_pairs_fp[ind] = np.concatenate(feats)
             if ind % 100 == 0:
                 print('get_pair_fp  %i / %i' % (ind, len(Aind)))
 
@@ -910,12 +923,12 @@ def get_relevant_images(dataset, splits=None, dtype='uint8'):
         
     if splits is not None:
         all_images = []
-        for s in splits:		
-			if s.startswith('re'):
-				A, B, c = dataset.raw_verification_task_resplit(split=s[2:])
-			else:
-				A, B, c = dataset.raw_verification_task(split=s)
-			all_images.extend([A,B])
+        for s in splits:        
+            if s.startswith('re'):
+                A, B, c = dataset.raw_verification_task_resplit(split=s[2:])
+            else:
+                A, B, c = dataset.raw_verification_task(split=s)
+            all_images.extend([A,B])
         all_images = np.unique(np.concatenate(all_images))
     
         inds = np.searchsorted(Xr, all_images)
