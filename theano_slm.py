@@ -506,6 +506,9 @@ class LFWBanditEZSearch2(gb.GensonBandit):
     """
     This Bandit has the same evaluate function as LFWBandit,
     but the template is setup for more efficient search.
+
+    Dan authored this class from LFWBanditEZSearch to add the possibility of
+    random gabor initialization of first-layer filters
     """
     def __init__(self):
         from cvpr_params import (
@@ -571,26 +574,25 @@ class LFWBanditEZSearch2(gb.GensonBandit):
         return result
 
 
-def get_test_performance(outfile, config, use_theano=True, tricks=None):
+def get_test_performance(outfile, config, use_theano=True, flip_lr=False, comparisons=DEFAULT_COMPARISONS):
 
     T = ['fold_' + str(i) for i in range(10)]
     splits = [(T[:i] + T[i+1:], T[i]) for i in range(10)]
     
     return get_performance(outfile, config, train_test_splits=splits, 
-                           use_theano=use_theano, tricks=tricks, tlimit=None)
+                           use_theano=use_theano, flip_lr=flip_lr, tlimit=None,
+                           comparisons=comparisons)
     
     
 
 def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
-                    tricks=None, tlimit=35):
+                    flip_lr=False, tlimit=35, comparisons=DEFAULT_COMPARISONS):
     import skdata.lfw
 
     c_hash = get_config_string(configs)
 
     if isinstance(configs, dict):
         configs = [configs]
-
-    comparisons = DEFAULT_COMPARISONS
 
     assert all([hasattr(comp_module,comparison) for comparison in comparisons])
 
@@ -660,7 +662,7 @@ def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
             for train_split, test_split in train_test_splits:
                 with PairFeatures(dataset, train_split, Xr,
                         n_features, features_fps, comparison_obj,
-                                  train_pairs_filename, tricks=tricks) as train_Xy:
+                                  train_pairs_filename, flip_lr=flip_lr) as train_Xy:
                     with PairFeatures(dataset, test_split,
                             Xr, n_features, features_fps, comparison_obj,
                                       test_pairs_filename) as test_Xy:
@@ -707,6 +709,7 @@ class ExtractedFeatures(object):
         self.filenames = []
         self.features = []
         
+
         for (ind_1, (fs, slm) in enumerate(zip(feature_shps, slms)):
             fnames = []
             fps = []
@@ -794,8 +797,7 @@ class PairFeatures(object):
         self.kwargs = kwargs
 
     def work(self, dset, split, X, n_features,
-             feature_fps, comparison_obj, filename, tricks=None):
-    
+             features_fps, comparison_obj, filename, flip_lr=False):
         if isinstance(split, str):
             split = [split]
         A = []
@@ -812,10 +814,14 @@ class PairFeatures(object):
             labels.extend(labels0)
         Ar = np.array([os.path.split(ar)[-1] for ar in A])
         Br = np.array([os.path.split(br)[-1] for br in B])
+        labels = np.array(labels)
         Aind = np.searchsorted(X, Ar)
         Bind = np.searchsorted(X, Br)
         assert len(Aind) == len(Bind)
         pair_shp = (len(labels), n_features)
+
+        if flip_lr:
+            pair_shp = (4 * pair_shp[0], pair_shp[1])
 
         size = 4 * np.prod(pair_shp)
         print('Total size: %i bytes (%.2f GB)' % (size, size / float(1e9)))
@@ -830,10 +836,38 @@ class PairFeatures(object):
         else:
             print('using memory for features of shape %s' % str(pair_shp))
             feature_pairs_fp = np.empty(pair_shp, dtype='float32')
+        feature_labels = []
 
         for (ind,(ai, bi)) in enumerate(zip(Aind, Bind)):
-            feats = [comparison_obj(fp[ai],fp[bi]) for fp in features_fps]
-            feature_pairs_fp[ind] = np.concatenate(feats)
+            # -- this flattens 3D features to 1D features
+            if flip_lr:
+                feature_pairs_fp[4 * ind + 0] = np.concatenate(
+                        [comparison_obj(
+                            fp[ai, :, :, :],
+                            fp[bi, :, :, :])
+                            for fp in features_fps])
+                feature_pairs_fp[4 * ind + 1] = np.concatenate(
+                        [comparison_obj(
+                            fp[ai, :, ::-1, :],
+                            fp[bi, :, :, :])
+                            for fp in features_fps])
+                feature_pairs_fp[4 * ind + 2] = np.concatenate(
+                        [comparison_obj(
+                            fp[ai, :, :, :],
+                            fp[bi, :, ::-1, :])
+                            for fp in features_fps])
+                feature_pairs_fp[4 * ind + 3] = np.concatenate(
+                        [comparison_obj(
+                            fp[ai, :, ::-1, :],
+                            fp[bi, :, ::-1, :])
+                            for fp in features_fps])
+
+                feature_labels.extend([labels[ind]] * 4)
+            else:
+                feats = [comparison_obj(fp[ai],fp[bi])
+                        for fp in features_fps]
+                feature_pairs_fp[ind] = np.concatenate(feats)
+                feature_labels.append(labels[ind])
             if ind % 100 == 0:
                 print('get_pair_fp  %i / %i' % (ind, len(Aind)))
 
@@ -850,7 +884,7 @@ class PairFeatures(object):
             self.features = feature_pairs_fp
             self.filename = ''
 
-        self.labels = labels
+        self.labels = np.array(feature_labels)
 
     def __enter__(self):
         self.work(*self.args, **self.kwargs)
