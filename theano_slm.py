@@ -483,6 +483,9 @@ class LFWBanditEZSearch2(gb.GensonBandit):
     """
     This Bandit has the same evaluate function as LFWBandit,
     but the template is setup for more efficient search.
+
+    Dan authored this class from LFWBanditEZSearch to add the possibility of
+    random gabor initialization of first-layer filters
     """
     def __init__(self):
         from cvpr_params import (
