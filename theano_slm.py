@@ -633,7 +633,7 @@ def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
             comparison_obj = getattr(comp_module,comparison)
             #how does tricks interact with n_features, if at all?
             n_features = sum([comparison_obj.get_num_features(f_shp) for f_shp in feature_shps])
-            for train_split, test_split in test_train_splits:
+            for train_split, test_split in train_test_splits:
                 with PairFeatures(dataset, train_split, Xr,
                         n_features, features_fps, comparison_obj,
                                   train_pairs_filename, flip_lr=flip_lr) as train_Xy:
@@ -763,7 +763,7 @@ class PairFeatures(object):
         self.kwargs = kwargs
 
     def work(self, dset, split, X, n_features,
-             feature_fps, comparison_obj, filename, flip_lr=False):
+             features_fps, comparison_obj, filename, flip_lr=False):
         if isinstance(split, str):
             split = [split]
         A = []
@@ -780,6 +780,7 @@ class PairFeatures(object):
             labels.extend(labels0)
         Ar = np.array([os.path.split(ar)[-1] for ar in A])
         Br = np.array([os.path.split(br)[-1] for br in B])
+        labels = np.array(labels)
         Aind = np.searchsorted(X, Ar)
         Bind = np.searchsorted(X, Br)
         assert len(Aind) == len(Bind)
@@ -798,10 +799,10 @@ class PairFeatures(object):
                                     dtype='float32',
                                     mode='w+',
                                     shape=pair_shp)
-            feature_labels = []
         else:
             print('using memory for features of shape %s' % str(pair_shp))
             feature_pairs_fp = np.empty(pair_shp, dtype='float32')
+        feature_labels = []
 
         for (ind,(ai, bi)) in enumerate(zip(Aind, Bind)):
             # -- this flattens 3D features to 1D features
@@ -849,7 +850,7 @@ class PairFeatures(object):
             self.features = feature_pairs_fp
             self.filename = ''
 
-        self.labels = feature_labels
+        self.labels = np.array(feature_labels)
 
     def __enter__(self):
         self.work(*self.args, **self.kwargs)
