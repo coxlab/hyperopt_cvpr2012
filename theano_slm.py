@@ -755,7 +755,8 @@ class PairFeatures(object):
         labels = []
         for s in split:
 			if s.startswith('re'):
-				A0, B0, labels0 = dset.raw_verification_task_resplit(split=s[2:])
+			    s = s[2:]
+				A0, B0, labels0 = dset.raw_verification_task_resplit(split=s)
 			else:
 				A0, B0, labels0 = dset.raw_verification_task(split=s)
 			A.extend(A0)
