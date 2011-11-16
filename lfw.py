@@ -29,7 +29,7 @@ import cvpr_params
 import comparisons as comp_module
 from theano_slm import (TheanoExtractedFeatures,  
                         use_memmap)
-from classifier import train_classifier
+from classifier import train_classifier_normalize
    
 
 DEFAULT_COMPARISONS = ['mult', 'absdiff', 'sqrtabsdiff', 'sqdiff']
@@ -292,11 +292,11 @@ def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
             for train_split, test_split in train_test_splits:
                 with PairFeatures(dataset, train_split, Xr,
                         n_features, features_fps, comparison_obj,
-                                  train_pairs_filename, flip_lr=flip_lr) as train_Xy:
+                                  train_pairs_filename, flip_lr=flip_lr) as train_Xy: 
                     with PairFeatures(dataset, test_split,
                             Xr, n_features, features_fps, comparison_obj,
                                       test_pairs_filename) as test_Xy:
-                        model, earlystopper = train_classifier(train_Xy, test_Xy)
+                        model, earlystopper = train_classifier_normalize(train_Xy, test_Xy)
                         perf.append(earlystopper.best_y)
                         n_test_examples = len(test_Xy[0])
             performance_comp[comparison] = float(np.array(perf).mean())
