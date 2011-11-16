@@ -19,22 +19,11 @@ from theano.tensor.signal import downsample
 from pythor3.model.slm.plugins.passthrough.passthrough import (
         SequentialLayeredModelPassthrough,
         )
-from pythor3.model import SequentialLayeredModel
 from pythor3.operation import fbcorr_
 from pythor3.operation import lnorm_
 
 import asgd  # use master branch from https://github.com/jaberg/asgd
-import skdata.larray
-import skdata.utils
-import hyperopt.genson_bandits as gb
 
-
-try:
-    import sge_utils
-except ImportError:
-    pass
-import cvpr_params
-import comparisons as comp_module
 from early_stopping import fit_w_early_stopping, EarlyStopping
 
 
@@ -51,6 +40,9 @@ def son_to_py(son):
         return son
 
 TEST = False
+TEST_NUM = 200
+DEFAULT_TLIMIT = 35
+
 
 class TheanoSLM(object):
     """
@@ -320,22 +312,44 @@ def train_classifier(config, train_Xy, test_Xy, n_features):
     print 'training classifier'
     train_X, train_y = train_Xy
     test_X, test_y = test_Xy
-    train_mean = train_X.mean(axis=0)
-    train_std = train_X.std(axis=0)
 
     # -- change labels to -1, +1
     assert set(train_y) == set([0, 1])
     train_y = train_y * 2 - 1
     test_y = test_y * 2 - 1
 
+    model = asgd.naive_asgd.NaiveBinaryASGD(
+                n_features=n_features,
+                l2_regularization=0,
+                sgd_step_size0=1e-3)
+    
+    return train_classifier_core(model, train_X, train_y, test_X, test_y)
+    
+    
+def train_multiclassifier(config, train_Xy, test_Xy, n_features, n_classes):
+    print 'training classifier'
+    train_X, train_y = train_Xy
+    test_X, test_y = test_Xy
+
+    assert set(train_y) == set(range(n_classes))
+
+    model = asgd.naive_asgd.NaiveMulticlassASGD(
+                n_features=n_features,
+                n_classes=n_classes,
+                l2_regularization=0,
+                sgd_step_size0=1e-3)
+    
+    return train_classifier_core(model, train_X, train_y, test_X, test_y)   
+    
+    
+def train_classifier_core(model, train_X, train_y, test_X, test_y):
+    train_mean = train_X.mean(axis=0)
+    train_std = train_X.std(axis=0)
     def normalize(XX):
         return (XX - train_mean) / np.maximum(train_std, 1e-6)
 
     model, earlystopper = fit_w_early_stopping(
-            model=asgd.naive_asgd.NaiveBinaryASGD(
-                n_features=n_features,
-                l2_regularization=0,
-                sgd_step_size0=1e-3),
+            model=model,
             es=EarlyStopping(warmup=20), # unit: validation intervals
             train_X=normalize(train_X),
             train_y=train_y,
@@ -346,318 +360,6 @@ def train_classifier(config, train_Xy, test_Xy, n_features):
     return earlystopper.best_y
 
 
-DEFAULT_COMPARISONS = ['mult', 'absdiff', 'sqrtabsdiff', 'sqdiff']
-
-
-class LFWBandit(gb.GensonBandit):
-    source_string = cvpr_params.string(cvpr_params.config)
-
-    def __init__(self):
-        super(LFWBandit, self).__init__(source_string=self.source_string)
-
-    @classmethod
-    def evaluate(cls, config, ctrl, use_theano=True):
-        result = get_performance(None, son_to_py(config), use_theano=use_theano)
-        return result
-
-
-class LFWBanditHetero(LFWBandit):
-    source_string = cvpr_params.string(cvpr_params.config_h)
-
-
-class LFWBanditHetero2(LFWBandit):
-    source_string = cvpr_params.string(cvpr_params.config_h2)
-
-
-class LFWBanditHetero3(LFWBandit):
-    source_string = cvpr_params.string(cvpr_params.config_h3)
-
-
-class LFWBanditHetero4(LFWBandit):
-    source_string = cvpr_params.string(cvpr_params.config_h4)
-
-
-class LFWBanditHetero5(LFWBandit):
-    source_string = cvpr_params.string(cvpr_params.config_h5)
-
-
-class LFWBanditHeteroTop5(LFWBandit):
-    source_string = cvpr_params.string(cvpr_params.config_h_Top5).replace('u"','"').replace('None','null')
-
-class LFWBanditHeteroTop5c(LFWBandit):
-    source_string = cvpr_params.string(cvpr_params.config_h_Top5c).replace('u"','"').replace('None','null')
-
-
-class LFWBanditHeteroTop(LFWBandit):
-    source_string = cvpr_params.string(cvpr_params.config_h_top)
-
-class LFWBanditHeteroPool(LFWBandit):
-    source_string = cvpr_params.string(cvpr_params.config_h_pool)
-
-class LFWBanditHeteroPool2(LFWBandit):
-    source_string = cvpr_params.string(cvpr_params.config_h_pool2).replace('u"','"').replace('None','null')
-
-class LFWBanditHeteroPool3(LFWBandit):
-    source_string = cvpr_params.string(cvpr_params.config_h_pool3)
-
-class LFWBanditHeteroPool4(LFWBandit):
-    source_string = cvpr_params.string(cvpr_params.config_h_pool4)
-
-class LFWBanditSGE(LFWBandit):
-    @classmethod
-    def evaluate(cls, config, ctrl, use_theano=True):
-        outfile = os.path.join('/tmp',get_config_string(config))
-        opstring = '-l qname=hyperopt.q -o /home/render/hyperopt_jobs -e /home/render/hyperopt_jobs'
-        jobid = sge_utils.qsub(get_performance, (outfile, config, use_theano),
-                     opstring=opstring)
-        status = sge_utils.wait_and_get_statuses([jobid])
-        return cPickle.loads(open(outfile).read())
-
-
-class LFWBanditEZSearch(gb.GensonBandit):
-    """
-    This Bandit has the same evaluate function as LFWBandit,
-    but the template is setup for more efficient search.
-    """
-    def __init__(self):
-        from cvpr_params import (
-                choice, uniform, gaussian, lognormal, ref, null, qlognormal)
-        lnorm = {'kwargs':{'inker_shape' : choice([(3,3),(5,5),(7,7),(9,9)]),
-                 'outker_shape' : ref('this','inker_shape'),
-                 'remove_mean' : choice([0,1]),
-                 'stretch' : lognormal(0, 1),
-                 'threshold' : lognormal(0, 1)
-                 }}
-        lpool = dict(
-                kwargs=dict(
-                    stride=2,
-                    ker_shape=choice([(3,3),(5,5),(7,7),(9,9)]),
-                    order=choice([1, 2, 10, uniform(1, 10)])))
-        activ =  {'min_out' : choice([null,0]), 'max_out' : choice([1,null])}
-
-        filter1 = dict(
-                initialize=dict(
-                    filter_shape=choice([(3,3),(5,5),(7,7),(9,9)]),
-                    n_filters=qlognormal(np.log(32), 1, round=16),
-                    generate=(
-                        'random:uniform',
-                        {'rseed': choice([11, 12, 13, 14, 15])})),
-                kwargs=activ)
-
-        filter2 = dict(
-                initialize=dict(
-                    filter_shape=choice([(3, 3), (5, 5), (7, 7), (9, 9)]),
-                    n_filters=qlognormal(np.log(32), 1, round=16),
-                    generate=(
-                        'random:uniform',
-                        {'rseed': choice([21, 22, 23, 24, 25])})),
-                kwargs=activ)
-
-        filter3 = dict(
-                initialize=dict(
-                    filter_shape=choice([(3, 3), (5, 5), (7, 7), (9, 9)]),
-                    n_filters=qlognormal(np.log(32), 1, round=16),
-                    generate=(
-                        'random:uniform',
-                        {'rseed': choice([31, 32, 33, 34, 35])})),
-                kwargs=activ)
-
-        layers = [[('lnorm', lnorm)],
-                  [('fbcorr', filter1), ('lpool', lpool), ('lnorm', lnorm)],
-                  [('fbcorr', filter2), ('lpool', lpool), ('lnorm', lnorm)],
-                  [('fbcorr', filter3), ('lpool', lpool), ('lnorm', lnorm)]]
-
-        comparison = ['mult', 'absdiff', 'sqrtabsdiff', 'sqdiff']
-
-        config = {'desc' : layers, 'comparison' : comparison}
-        source_string = repr(config).replace("'",'"')
-        gb.GensonBandit.__init__(self, source_string=source_string)
-
-    @classmethod
-    def evaluate(cls, config, ctrl, use_theano=True):
-        result = get_performance(None, son_to_py(config), use_theano=use_theano)
-        return result
-
-
-class LFWBanditEZSearch2(gb.GensonBandit):
-    """
-    This Bandit has the same evaluate function as LFWBandit,
-    but the template is setup for more efficient search.
-
-    Dan authored this class from LFWBanditEZSearch to add the possibility of
-    random gabor initialization of first-layer filters
-    """
-    def __init__(self):
-        from cvpr_params import (
-                choice, uniform, gaussian, lognormal, ref, null, qlognormal)
-        lnorm = {'kwargs':{'inker_shape' : choice([(3,3),(5,5),(7,7),(9,9)]),
-                 'outker_shape' : ref('this','inker_shape'),
-                 'remove_mean' : choice([0,1]),
-                 'stretch' : lognormal(0, 1),
-                 'threshold' : lognormal(0, 1)
-                 }}
-        lpool = dict(
-                kwargs=dict(
-                    stride=2,
-                    ker_shape=choice([(3,3),(5,5),(7,7),(9,9)]),
-                    order=choice([1, 2, 10, uniform(1, 10)])))
-        activ =  {'min_out' : choice([null, 0]), 
-                  'max_out' : choice([1, null])}
-
-        filter1 = dict(
-                initialize=dict(
-                    filter_shape=choice([(3,3),(5,5),(7,7),(9,9)]),
-                    n_filters=qlognormal(np.log(32), 1, round=16),
-                    generate=choice([('random:uniform',
-                                     {'rseed': choice([11, 12, 13, 14, 15])}),
-                                     ('random:gabor',
-                                     {'min_wl': 2, 'max_wl': 20 , 
-                                      'rseed': choice([11, 12, 13, 14, 15])})
-                                     ])),
-                kwargs=activ)
-
-        filter2 = dict(
-                initialize=dict(
-                    filter_shape=choice([(3, 3), (5, 5), (7, 7), (9, 9)]),
-                    n_filters=qlognormal(np.log(32), 1, round=16),
-                    generate=(
-                        'random:uniform',
-                        {'rseed': choice([21, 22, 23, 24, 25])})),
-                kwargs=activ)
-
-        filter3 = dict(
-                initialize=dict(
-                    filter_shape=choice([(3, 3), (5, 5), (7, 7), (9, 9)]),
-                    n_filters=qlognormal(np.log(32), 1, round=16),
-                    generate=(
-                        'random:uniform',
-                        {'rseed': choice([31, 32, 33, 34, 35])})),
-                kwargs=activ)
-
-        layers = [[('lnorm', lnorm)],
-                  [('fbcorr', filter1), ('lpool', lpool), ('lnorm', lnorm)],
-                  [('fbcorr', filter2), ('lpool', lpool), ('lnorm', lnorm)],
-                  [('fbcorr', filter3), ('lpool', lpool), ('lnorm', lnorm)]]
-
-        comparison = ['mult', 'absdiff', 'sqrtabsdiff', 'sqdiff']
-
-        config = {'desc' : layers, 'comparison' : comparison}
-        source_string = repr(config).replace("'",'"')
-        gb.GensonBandit.__init__(self, source_string=source_string)
-
-    @classmethod
-    def evaluate(cls, config, ctrl, use_theano=True):
-        result = get_performance(None, son_to_py(config), use_theano=use_theano)
-        return result
-
-
-def get_test_performance(outfile, config, use_theano=True, flip_lr=False, comparisons=DEFAULT_COMPARISONS):
-
-    T = ['fold_' + str(i) for i in range(10)]
-    splits = [(T[:i] + T[i+1:], T[i]) for i in range(10)]
-    
-    return get_performance(outfile, config, train_test_splits=splits, 
-                           use_theano=use_theano, flip_lr=flip_lr, tlimit=None,
-                           comparisons=comparisons)
-    
-    
-
-def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
-                    flip_lr=False, tlimit=35, comparisons=DEFAULT_COMPARISONS):
-    import skdata.lfw
-
-    c_hash = get_config_string(configs)
-
-    if isinstance(configs, dict):
-        configs = [configs]
-
-    assert all([hasattr(comp_module,comparison) for comparison in comparisons])
-
-    dataset = skdata.lfw.Aligned()
-
-    if train_test_splits is None:
-        train_test_splits = [('retrain_0', 'retest_0')]
-
-    train_splits, test_splits = zip(*train_test_splits)
-    all_splits = test_splits + train_splits
-        
-    X, y, Xr = get_relevant_images(dataset, splits = all_splits, dtype='float32')
-
-    batchsize = 4
-
-    slms = []
-    feature_shps = []
-    for config in configs:
-        desc = copy.deepcopy(config['desc'])
-        interpret_model(desc)
-        if X.ndim == 3:
-            theano_slm = TheanoSLM(
-                    in_shape=(batchsize,) + X.shape[1:] + (1,),
-                    description=desc)
-        elif X.ndim == 4:
-            theano_slm = TheanoSLM(
-                    in_shape=(batchsize,) + X.shape[1:],
-                    description=desc)
-        else:
-            raise NotImplementedError()
-    
-        if use_theano:
-            slm = theano_slm
-            # -- pre-compile the function to not mess up timing
-            slm.get_theano_fn()
-        else:
-            cthor_sse = {'plugin':'cthor', 'plugin_kwargs':{'variant':'sse'}}
-            cthor = {'plugin':'cthor', 'plugin_kwargs':{}}
-            slm = SequentialLayeredModel(X.shape[1:], desc,
-                                         plugin='passthrough',
-                                         plugin_kwargs={'plugin_mapping': {
-                                             'fbcorr': cthor,
-                                              'lnorm' : cthor,
-                                              'lpool' : cthor,
-                                         }})
-            
-        slms.append(slm)
-        feature_shp = (X.shape[0],) + theano_slm.pythor_out_shape
-        feature_shps.append(feature_shp)
-
-    performance_comp = {}
-    feature_file_names = ['features_' + c_hash + '_' + str(i) +  '.dat' for i in range(len(slms))]
-    train_pairs_filename = 'train_pairs_' + c_hash + '.dat'
-    test_pairs_filename = 'test_pairs_' + c_hash + '.dat'
-    with ExtractedFeatures(X, feature_shps, batchsize, slms,
-            feature_file_names, tlimit=tlimit) as features_fps:
-        for comparison in comparisons:
-            print('Doing comparison %s' % comparison)
-            perf = []
-            comparison_obj = getattr(comp_module,comparison)
-            #how does tricks interact with n_features, if at all?
-            n_features = sum([comparison_obj.get_num_features(f_shp) for f_shp in feature_shps])
-            for train_split, test_split in train_test_splits:
-                with PairFeatures(dataset, train_split, Xr,
-                        n_features, features_fps, comparison_obj,
-                                  train_pairs_filename, flip_lr=flip_lr) as train_Xy:
-                    with PairFeatures(dataset, test_split,
-                            Xr, n_features, features_fps, comparison_obj,
-                                      test_pairs_filename) as test_Xy:
-                        perf.append(train_classifier(config,
-                                    train_Xy, test_Xy, n_features))
-                        n_test_examples = len(test_Xy[0])
-            performance_comp[comparison] = float(np.array(perf).mean())
-
-    performance = float(np.array(performance_comp.values()).min())
-    result = dict(
-            loss=performance,
-            loss_variance=performance * (1 - performance) / n_test_examples,
-            performances=performance_comp,
-            status='ok')
-
-    if outfile is not None:
-        outfh = open(outfile,'w')
-        cPickle.dump(result, outfh)
-        outfh.close()
-    return result
-
-
 def use_memmap(size):
     if size < 3e8:
         memmap = False
@@ -666,8 +368,9 @@ def use_memmap(size):
     return memmap
 
 
+
 class ExtractedFeatures(object):
-    def __init__(self, X, feature_shps, batchsize, slms, filenames, tlimit=35):
+    def __init__(self, X, feature_shps, batchsize, slms, filenames, tlimit=DEFAULT_TLIMIT):
         """
         X - 4-tensor of images
         feature_shp - 4-tensor of output feature shape (len matches X)
@@ -680,6 +383,7 @@ class ExtractedFeatures(object):
         
         self.filenames = []
         self.features = []
+        self.feature_shps = feature_shps
         
         for feature_shp, filename, slm in zip(feature_shps, filenames, slms):
             size = 4 * np.prod(feature_shp)
@@ -756,112 +460,50 @@ class ExtractedFeatures(object):
                 os.remove(filename)
 
 
-class PairFeatures(object):
-    def __init__(self, *args, **kwargs):
-        self.args = args
-        self.kwargs = kwargs
-
-    def work(self, dset, split, X, n_features,
-             features_fps, comparison_obj, filename, flip_lr=False):
-        if isinstance(split, str):
-            split = [split]
-        A = []
-        B = []
-        labels = []
-        for s in split:
-            if s.startswith('re'):
-                s = s[2:]
-                A0, B0, labels0 = dset.raw_verification_task_resplit(split=s)
+class TheanoExtractedFeatures(ExtractedFeatures):
+    def __init__(self, X, batchsize, configs, filenames, tlimit=DEFAULT_TLIMIT,
+                 use_theano=True):
+    
+        slms = []
+        feature_shps = []
+        for config in configs:
+            config = son_to_py(config)
+            desc = copy.deepcopy(config['desc'])
+            interpret_model(desc)
+            if X.ndim == 3:
+                t_slm = TheanoSLM(
+                        in_shape=(batchsize,) + X.shape[1:] + (1,),
+                        description=desc)
+            elif X.ndim == 4:
+                t_slm = TheanoSLM(
+                        in_shape=(batchsize,) + X.shape[1:],
+                        description=desc)
             else:
-                A0, B0, labels0 = dset.raw_verification_task(split=s)
-            A.extend(A0)
-            B.extend(B0)
-            labels.extend(labels0)
-        Ar = np.array([os.path.split(ar)[-1] for ar in A])
-        Br = np.array([os.path.split(br)[-1] for br in B])
-        labels = np.array(labels)
-        Aind = np.searchsorted(X, Ar)
-        Bind = np.searchsorted(X, Br)
-        assert len(Aind) == len(Bind)
-        pair_shp = (len(labels), n_features)
-
-        if flip_lr:
-            pair_shp = (4 * pair_shp[0], pair_shp[1])
-
-        size = 4 * np.prod(pair_shp)
-        print('Total size: %i bytes (%.2f GB)' % (size, size / float(1e9)))
-        memmap = use_memmap(size)
-        if memmap:
-            print('get_pair_fp memmap %s for features of shape %s' % (
-                                                    filename, str(pair_shp)))
-            feature_pairs_fp = np.memmap(filename,
-                                    dtype='float32',
-                                    mode='w+',
-                                    shape=pair_shp)
-        else:
-            print('using memory for features of shape %s' % str(pair_shp))
-            feature_pairs_fp = np.empty(pair_shp, dtype='float32')
-        feature_labels = []
-
-        for (ind,(ai, bi)) in enumerate(zip(Aind, Bind)):
-            # -- this flattens 3D features to 1D features
-            if flip_lr:
-                feature_pairs_fp[4 * ind + 0] = np.concatenate(
-                        [comparison_obj(
-                            fp[ai, :, :, :],
-                            fp[bi, :, :, :])
-                            for fp in features_fps])
-                feature_pairs_fp[4 * ind + 1] = np.concatenate(
-                        [comparison_obj(
-                            fp[ai, :, ::-1, :],
-                            fp[bi, :, :, :])
-                            for fp in features_fps])
-                feature_pairs_fp[4 * ind + 2] = np.concatenate(
-                        [comparison_obj(
-                            fp[ai, :, :, :],
-                            fp[bi, :, ::-1, :])
-                            for fp in features_fps])
-                feature_pairs_fp[4 * ind + 3] = np.concatenate(
-                        [comparison_obj(
-                            fp[ai, :, ::-1, :],
-                            fp[bi, :, ::-1, :])
-                            for fp in features_fps])
-
-                feature_labels.extend([labels[ind]] * 4)
+                raise NotImplementedError()
+        
+            if use_theano:
+                slm = t_slm
+                # -- pre-compile the function to not mess up timing
+                slm.get_theano_fn()
             else:
-                feats = [comparison_obj(fp[ai],fp[bi])
-                        for fp in features_fps]
-                feature_pairs_fp[ind] = np.concatenate(feats)
-                feature_labels.append(labels[ind])
-            if ind % 100 == 0:
-                print('get_pair_fp  %i / %i' % (ind, len(Aind)))
-
-        if memmap:
-            print ('flushing memmap')
-            sys.stdout.flush()
-            del feature_pairs_fp
-            self.filename = filename
-            self.features = np.memmap(filename,
-                    dtype='float32',
-                    mode='r',
-                    shape=pair_shp)
-        else:
-            self.features = feature_pairs_fp
-            self.filename = ''
-
-        self.labels = np.array(feature_labels)
-
-    def __enter__(self):
-        self.work(*self.args, **self.kwargs)
-        return (self.features, self.labels)
-
-    def __exit__(self, *args):
-        if self.filename:
-            os.remove(self.filename)
+                cthor_sse = {'plugin':'cthor', 'plugin_kwargs':{'variant':'sse'}}
+                cthor = {'plugin':'cthor', 'plugin_kwargs':{}}
+                slm = SequentialLayeredModel(X.shape[1:], desc,
+                                             plugin='passthrough',
+                                             plugin_kwargs={'plugin_mapping': {
+                                                 'fbcorr': cthor,
+                                                  'lnorm' : cthor,
+                                                  'lpool' : cthor,
+                                             }})
+                
+            slms.append(slm)
+            feature_shp = (X.shape[0],) + t_slm.pythor_out_shape
+            feature_shps.append(feature_shp)
+        
+        super(TheanoExtractedFeatures, self).__init__(X, feature_shps, batchsize, 
+                                                      slms, filenames, tlimit=tlimit)
 
 
-
-######utils
 
 class InvalidDescription(Exception):
     """Model description was invalid"""
@@ -871,12 +513,11 @@ class TooLongException(Exception):
     def msg(tot, cutoff):
         return 'Would take too long to execute model (%f mins, but cutoff is %s mins)' % (tot, cutoff)
        
-
-
 def dict_add(a, b):
     rval = dict(a)
     rval.update(b)
     return rval
+
 
 def get_into_shape(x):
     if hasattr(x,'__iter__'):
@@ -885,6 +526,7 @@ def get_into_shape(x):
         x = x[np.newaxis, :, np.newaxis, np.newaxis]
         x = x.astype(np.float32)
     return x
+
 
 def get_pythor_safe_description(description):
     description = copy.deepcopy(description)
@@ -897,94 +539,9 @@ def get_pythor_safe_description(description):
 
 
 
-def get_config_string(configs):
-    return hashlib.sha1(repr(configs)).hexdigest()
-
-
-class ImgLoaderResizer(object):
-    """ Load 250x250 greyscale images, return normalized 200x200 float32 ones.
-    """
-    def __init__(self, shape=None, ndim=None, dtype='float32', mode=None):
-        assert shape == (200, 200)
-        assert dtype == 'float32'
-        self._shape = shape
-        if ndim is None:
-            self._ndim = None if (shape is None) else len(shape)
-        else:
-            self._ndim = ndim
-        self._dtype = dtype
-        self.mode = mode
-
-    def rval_getattr(self, attr, objs):
-        if attr == 'shape' and self._shape is not None:
-            return self._shape
-        if attr == 'ndim' and self._ndim is not None:
-            return self._ndim
-        if attr == 'dtype':
-            return self._dtype
-        raise AttributeError(attr)
-
-    def __call__(self, file_path):
-        im = Image.open(file_path)
-        im = im.resize((200, 200), Image.ANTIALIAS)
-        rval = np.asarray(im, 'float32')
-        rval -= rval.mean()
-        rval /= max(rval.std(), 1e-3)
-        assert rval.shape == (200, 200)
-        return rval
-
-
-def unroll(X):
-    Y = []
-    for x in X:
-        if isinstance(x,str):
-            Y.append(x)
-        else:
-            Y.extend(x)
-    return np.unique(Y)
-
-
-def get_relevant_images(dataset, splits=None, dtype='uint8'):
-    # load & resize logic is LFW Aligned -specific
-    assert 'Aligned' in str(dataset.__class__)
-
-    
-    Xr, yr = dataset.raw_classification_task()
-    Xr = np.array(Xr)
-
-    if splits is not None:
-        splits = unroll(splits)
-        
-    if splits is not None:
-        all_images = []
-        for s in splits:        
-            if s.startswith('re'):
-                A, B, c = dataset.raw_verification_task_resplit(split=s[2:])
-            else:
-                A, B, c = dataset.raw_verification_task(split=s)
-            all_images.extend([A,B])
-        all_images = np.unique(np.concatenate(all_images))
-    
-        inds = np.searchsorted(Xr, all_images)
-        Xr = Xr[inds]
-        yr = yr[inds]        
-
-    X = skdata.larray.lmap(
-                ImgLoaderResizer(
-                    shape=(200, 200),  # lfw-specific
-                    dtype=dtype),
-                Xr)
-
-    Xr = np.array([os.path.split(x)[-1] for x in Xr])
-
-    return X, yr, Xr
-
-
 def flatten(x):
     return list(itertools.chain(*x))
 
-
-#####heterogenous model stuff
 def interpret_activ(filter, activ):
     n_filters = filter['initialize']['n_filters']
     generator = activ['generate'][0].split(':')
