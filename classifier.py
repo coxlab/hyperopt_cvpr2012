@@ -67,6 +67,9 @@ def train_classifier(train_Xy, test_Xy, verbose=False, batchsize=10,
     n_examples, n_features = train_X.shape
     train_mean = train_X.mean(axis=0)
     train_std = train_X.std(axis=0)
+    
+    def normalize(XX):
+        return (XX - train_mean) / np.maximum(train_std, 1e-6)
 
     # -- change labels to -1, +1
     if set(train_y) == set([0, 1]):
@@ -83,9 +86,9 @@ def train_classifier(train_Xy, test_Xy, verbose=False, batchsize=10,
                     l2_regularization=1e-3,
                     sgd_step_size0=step_size0),
                 es=EarlyStopping(warmup=50, max_iters=1000), # unit: validation intervals
-                train_X=train_X,
+                train_X=normalize(train_X),
                 train_y=train_y,
-                validation_X=test_X,
+                validation_X=normalize(test_X),
                 validation_y=test_y,
                 batchsize=batchsize,
                 validation_interval=validation_interval,

@@ -308,7 +308,7 @@ class TheanoSLM(object):
         else:
             return rval
 
-    
+      
 def train_multiclassifier(config, train_Xy, test_Xy, n_features, n_classes):
     print 'training classifier'
     train_X, train_y = train_Xy
