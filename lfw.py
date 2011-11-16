@@ -27,11 +27,10 @@ except ImportError:
     pass
 import cvpr_params
 import comparisons as comp_module
-from theano_slm import (TheanoExtractedFeatures, 
-                        train_classifier, 
+from theano_slm import (TheanoExtractedFeatures,  
                         use_memmap)
+from classifier import train_classifier
    
-
 
 DEFAULT_COMPARISONS = ['mult', 'absdiff', 'sqrtabsdiff', 'sqdiff']
 
@@ -265,7 +264,7 @@ def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
     dataset = skdata.lfw.Aligned()
 
     if train_test_splits is None:
-        train_test_splits = [('retrain_0', 'retest_0')]
+        train_test_splits = [('DevTrain','DevTest')]
 
     train_splits, test_splits = zip(*train_test_splits)
     all_splits = test_splits + train_splits
@@ -297,8 +296,8 @@ def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
                     with PairFeatures(dataset, test_split,
                             Xr, n_features, features_fps, comparison_obj,
                                       test_pairs_filename) as test_Xy:
-                        perf.append(train_classifier(configs,
-                                    train_Xy, test_Xy, n_features))
+                        model, earlystopper = train_classifier(train_Xy, test_Xy)
+                        perf.append(earlystopper.best_y)
                         n_test_examples = len(test_Xy[0])
             performance_comp[comparison] = float(np.array(perf).mean())
 
