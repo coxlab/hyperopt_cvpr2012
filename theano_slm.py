@@ -383,6 +383,7 @@ class ExtractedFeatures(object):
         
         self.filenames = []
         self.features = []
+        self.feature_shps = feature_shps
         
         for feature_shp, filename, slm in zip(feature_shps, filenames, slms):
             size = 4 * np.prod(feature_shp)
@@ -459,46 +460,48 @@ class ExtractedFeatures(object):
                 os.remove(filename)
 
 
-class TheanoExtractedFeatures(ExtractFeatures):
-    def __init__(self, X, batchsize, configs, filenames, tlimit=DEFAULT_TLIMIT):
+class TheanoExtractedFeatures(ExtractedFeatures):
+    def __init__(self, X, batchsize, configs, filenames, tlimit=DEFAULT_TLIMIT,
+                 use_theano=True):
     
-		slms = []
-		feature_shps = []
-		for config in configs:
-			desc = copy.deepcopy(config['desc'])
-			interpret_model(desc)
-			if X.ndim == 3:
-				t_slm = TheanoSLM(
-						in_shape=(batchsize,) + X.shape[1:] + (1,),
-						description=desc)
-			elif X.ndim == 4:
-				t_slm = TheanoSLM(
-						in_shape=(batchsize,) + X.shape[1:],
-						description=desc)
-			else:
-				raise NotImplementedError()
-		
-			if use_theano:
-				slm = t_slm
-				# -- pre-compile the function to not mess up timing
-				slm.get_theano_fn()
-			else:
-				cthor_sse = {'plugin':'cthor', 'plugin_kwargs':{'variant':'sse'}}
-				cthor = {'plugin':'cthor', 'plugin_kwargs':{}}
-				slm = SequentialLayeredModel(X.shape[1:], desc,
-											 plugin='passthrough',
-											 plugin_kwargs={'plugin_mapping': {
-												 'fbcorr': cthor,
-												  'lnorm' : cthor,
-												  'lpool' : cthor,
-											 }})
-				
-			slms.append(slm)
-			feature_shp = (X.shape[0],) + t_slm.pythor_out_shape
-			feature_shps.append(feature_shp)
-		
-		super(TheanoExtractedFeatures, self).__init__(X, feature_shp, batchsize, 
-		                                              slms, filenames, tlimit=tlimit)
+        slms = []
+        feature_shps = []
+        for config in configs:
+            config = son_to_py(config)
+            desc = copy.deepcopy(config['desc'])
+            interpret_model(desc)
+            if X.ndim == 3:
+                t_slm = TheanoSLM(
+                        in_shape=(batchsize,) + X.shape[1:] + (1,),
+                        description=desc)
+            elif X.ndim == 4:
+                t_slm = TheanoSLM(
+                        in_shape=(batchsize,) + X.shape[1:],
+                        description=desc)
+            else:
+                raise NotImplementedError()
+        
+            if use_theano:
+                slm = t_slm
+                # -- pre-compile the function to not mess up timing
+                slm.get_theano_fn()
+            else:
+                cthor_sse = {'plugin':'cthor', 'plugin_kwargs':{'variant':'sse'}}
+                cthor = {'plugin':'cthor', 'plugin_kwargs':{}}
+                slm = SequentialLayeredModel(X.shape[1:], desc,
+                                             plugin='passthrough',
+                                             plugin_kwargs={'plugin_mapping': {
+                                                 'fbcorr': cthor,
+                                                  'lnorm' : cthor,
+                                                  'lpool' : cthor,
+                                             }})
+                
+            slms.append(slm)
+            feature_shp = (X.shape[0],) + t_slm.pythor_out_shape
+            feature_shps.append(feature_shp)
+        
+        super(TheanoExtractedFeatures, self).__init__(X, feature_shps, batchsize, 
+                                                      slms, filenames, tlimit=tlimit)
 
 
 

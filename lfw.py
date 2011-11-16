@@ -43,7 +43,7 @@ class LFWBandit(gb.GensonBandit):
 
     @classmethod
     def evaluate(cls, config, ctrl, use_theano=True):
-        result = get_performance(None, son_to_py(config), use_theano=use_theano)
+        result = get_performance(None, config, use_theano=use_theano)
         return result
 
 
@@ -160,7 +160,7 @@ class LFWBanditEZSearch(gb.GensonBandit):
 
     @classmethod
     def evaluate(cls, config, ctrl, use_theano=True):
-        result = get_performance(None, son_to_py(config), use_theano=use_theano)
+        result = get_performance(None, config, use_theano=use_theano)
         return result
 
 
@@ -232,7 +232,7 @@ class LFWBanditEZSearch2(gb.GensonBandit):
 
     @classmethod
     def evaluate(cls, config, ctrl, use_theano=True):
-        result = get_performance(None, son_to_py(config), use_theano=use_theano)
+        result = get_performance(None, config, use_theano=use_theano)
         return result
 
 
@@ -276,12 +276,14 @@ def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
 
 
     performance_comp = {}
-    feature_file_names = ['features_' + c_hash + '_' + str(i) +  '.dat' for i in range(len(slms))]
+    feature_file_names = ['features_' + c_hash + '_' + str(i) +  '.dat' for i in range(len(configs))]
     train_pairs_filename = 'train_pairs_' + c_hash + '.dat'
     test_pairs_filename = 'test_pairs_' + c_hash + '.dat'
     
     with TheanoExtractedFeatures(X, batchsize, configs, feature_file_names, 
-                                                tlimit=tlimit) as features_fps:
+                                 use_theano=use_theano, tlimit=tlimit) as features_fps:
+    
+        feature_shps = [features_fp.shape for features_fp in features_fps]
         for comparison in comparisons:
             print('Doing comparison %s' % comparison)
             perf = []
@@ -295,7 +297,7 @@ def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
                     with PairFeatures(dataset, test_split,
                             Xr, n_features, features_fps, comparison_obj,
                                       test_pairs_filename) as test_Xy:
-                        perf.append(train_classifier(config,
+                        perf.append(train_classifier(configs,
                                     train_Xy, test_Xy, n_features))
                         n_test_examples = len(test_Xy[0])
             performance_comp[comparison] = float(np.array(perf).mean())
