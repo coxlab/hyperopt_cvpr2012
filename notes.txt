@@ -1,0 +1,93 @@
+
+Is AdaptiveParzen strictly better than Random Search (for SLM on task X)?
+=========================================================================
+
+FG11
+----
+- defined "FG11Space" model configuration space
+- sampled ~7000 jobs randomly
+- found top 5 models with perf >= 82.8%
+  - Question: how could stderr go from .6 to .3 as scores improve from .828 to
+    .841 ?  My calculation gives stderr of 1.1% and 1.0% respectively, for 95%
+    confidence interval of almost 2%.
+- found one model with 84.1 % score
+- which comparison function was used for screening?
+  - I think it was sqrt abs diff ?
+- got boost moving from screening to View2 by several tricks:
+  - combining comparison functions
+  - combining input sizes (crops)
+  - combining top-performing models
+
+
+theano_slm.LFWBanditEZSearch
+----------------------------
+- larger space than FG11Space
+  - did not bound filter sizes
+  - reported score as best across comparison functions (not just sqrt-abs-diff
+  - using ASGD classifier with early stopping
+    - early stopping actually optimizes for performance on View1 test
+      - View1 screening performance is designed to be biased compared to View2
+        test performance.
+      - XXX: currently our code is not testing fairly! Technically
+        over-estimating test performance by doing early stopping on the test
+        set of each View2 fold.
+  - did not bound stretch or threshold params to lnorm
+  - allowed continuous lpool order
+  - allowed independent and multiple seeds for fbcorr filterbank
+
+Random screening scores are up to 82 after a few hundred jobs.
+Adaptive screening scores are up to 85.5 after a few hundred jobs.
+
+AdaptiveParzen search suggests that the two most important factors in getting
+a high score are:
+(1) using thousands of output features (>> max of 256 in FG11Space)
+(2) using mul comparison function (seems to be about 2% better than others)
+
+Factors (1) and (2) together indicate that the best-performing models found by
+the adaptive search are far outside FG11Space.
+
+Looking at performance using the sqrt-abs-diff comparison function,
+the best-performing models found by AdaptiveParzen are not as good as
+the best ones found in the FG11Space.
+
+The best-performing models found by AdaptiveParzen are too large to combine,
+whereas combinations of features gave a boost in the FG11 paper.
+
+I suspect that the good-performing outliers found by random search in
+FG11Space are better in terms of say, number of standard devs from mean, than
+are the best AdaptiveParzen results relative to random-search results in the
+LFWBanditEZSearch space.
+
+
+Feature Count Issue
+~~~~~~~~~~~~~~~~~~~
+The clear tendency of AdaptiveParzen to blow up the feature space raises an
+interesting point.  Adding more non-linear random projections of a signal
+tends to produce a better feature vector.  The optimization algorithm is doing
+its job. At the same time this is an undesirable solution, because it makes
+models very slow to run. I suspect that it reduces the value as well as the
+feasibility of feature blending.
+
+Potential responses:
+(1) include feature-blending into the search space
+(2) fix a max on the number of features a model is allowed to yield
+(3) fix a number of PCA components used to summarize model features
+(4) extend optimization algorithm to take evaluation time into consideration
+
+Option (4) would perhaps be the most satisfying, but I don't know how to do
+it. The AdaptiveParzen algo seems all but incompatible with (4) but a GP-based
+algorithm might be able to do it.
+I'm afraid (1) isn't really feasible without first having (4).
+The option of (2) is the most similar to the search carried out in FG11.
+The option of (3) is similar to 2, but my intuition is that it might perform
+better.
+
+Classifier Potential Issue
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+The classifier is the last and most important piece of the pipeline, and we're
+using a new one (ASGD) that I've never used before. I've also never used such
+huge feature vectors. Maybe my technique for early stopping isn't good here,
+and a search over l2-regularization amounts might be better. Maybe
+L1-regularization would be more effective. We should verify that the
+classifier is as good as other slower ones.
+
