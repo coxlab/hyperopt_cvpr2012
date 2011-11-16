@@ -56,7 +56,8 @@ def split_center_normalize(X, y,
             train_std)
 
 
-def train_classifier(train_Xy, test_Xy, verbose=False, batchsize=10):
+def train_classifier(train_Xy, test_Xy, verbose=False, batchsize=10,
+        step_sizes=(3e-4, 1e-4, 3e-5, 1e-5, 3e-6, 1e-6)):
     """
     batchsize = 10                 # unit: examples
     """
@@ -90,7 +91,7 @@ def train_classifier(train_Xy, test_Xy, verbose=False, batchsize=10):
                 validation_interval=validation_interval,
                 verbose=verbose
                 )
-            for step_size0 in (1e-3, 3e-4, 1e-4, 3e-5, 1e-5, 3e-6)]
+            for step_size0 in step_sizes]
     results.sort(cmp=lambda a, b: cmp(a[1].best_y, b[1].best_y))
     return results[0]
 
