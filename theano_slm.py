@@ -357,7 +357,7 @@ class LFWBandit(gb.GensonBandit):
 
     @classmethod
     def evaluate(cls, config, ctrl, use_theano=True):
-        result = get_performance(None, son_to_py(config), use_theano)
+        result = get_performance(None, son_to_py(config), use_theano=use_theano)
         return result
 
 
