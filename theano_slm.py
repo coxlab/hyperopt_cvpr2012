@@ -24,6 +24,7 @@ from pythor3.operation import lnorm_
 
 import asgd  # use master branch from https://github.com/jaberg/asgd
 
+
 from early_stopping import fit_w_early_stopping, EarlyStopping
 
 
@@ -307,24 +308,6 @@ class TheanoSLM(object):
         else:
             return rval
 
-
-def train_classifier(config, train_Xy, test_Xy, n_features):
-    print 'training classifier'
-    train_X, train_y = train_Xy
-    test_X, test_y = test_Xy
-
-    # -- change labels to -1, +1
-    assert set(train_y) == set([0, 1])
-    train_y = train_y * 2 - 1
-    test_y = test_y * 2 - 1
-
-    model = asgd.naive_asgd.NaiveBinaryASGD(
-                n_features=n_features,
-                l2_regularization=0,
-                sgd_step_size0=1e-3)
-    
-    return train_classifier_core(model, train_X, train_y, test_X, test_y)
-    
     
 def train_multiclassifier(config, train_Xy, test_Xy, n_features, n_classes):
     print 'training classifier'
@@ -508,6 +491,7 @@ class TheanoExtractedFeatures(ExtractedFeatures):
 class InvalidDescription(Exception):
     """Model description was invalid"""
 
+
 class TooLongException(Exception):
     """model takes too long to evaluate"""
     def msg(tot, cutoff):
@@ -536,7 +520,6 @@ def get_pythor_safe_description(description):
                 newname = op_name[:-2]
                 layer_desc[op_idx] = (newname,op_params)
     return description
-
 
 
 def flatten(x):

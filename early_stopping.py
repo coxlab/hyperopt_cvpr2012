@@ -5,10 +5,12 @@ import copy
 import numpy as np
 
 class EarlyStopping(object):
-    def __init__(self, warmup, improvement_thresh=0.2, patience=2.0):
+    def __init__(self, warmup, improvement_thresh=0.2, patience=2.0,
+            max_iters=None):
         self.warmup = warmup
         self.improvement_thresh = improvement_thresh
         self.patience = patience
+        self.max_iters = max_iters
         self.cur_time = 0
         self.best_time = -1
         self.best_y = float('inf')
@@ -37,9 +39,13 @@ class EarlyStopping(object):
             self.best_y_std = y_std
 
     def done(self):
-        return self.cur_time >= max(
+        if self.cur_time >= max(
             self.warmup,
-            self.best_time * self.patience)
+            self.best_time * self.patience):
+            return True
+        if self.max_iters is not None and self.cur_time >= self.max_iters:
+            return True
+        return False
 
 
 def fit_w_early_stopping(model, es,
