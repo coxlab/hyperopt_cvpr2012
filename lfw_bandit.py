@@ -364,6 +364,10 @@ class PairFeatures(object):
                 split='DevTrain')
         return self.compute_pairs_features_fliplr(lpaths, rpaths, labels)
 
+    def view1_resplit_fliplr(self, name):
+        lpaths, rpaths, labels = self.dataset.raw_verification_task_resplit(
+                split=name)
+        return self.compute_pairs_features_fliplr(lpaths, rpaths, labels)
 
 def main_result_from_trial():
     _, cmd, bandit_str, algo_str, trials_idx = sys.argv
@@ -373,6 +377,7 @@ def main_result_from_trial():
             exp_key = '%s/%s' % (bandit_str, algo_str))
     mexp.refresh_trials_results()
     print mexp.results[int(trials_idx)]
+
 
 def main_features_from_dan():
     _, cmd, idx, filename = sys.argv
@@ -407,6 +412,7 @@ def main_features_from_dan():
             batchsize=batchsize,
             TEST=False)
     extractor.compute_features(use_memmap=True)
+
 
 def main_features_from_trial():
     _, cmd, bandit_str, algo_str, trials_idx, filename = sys.argv
@@ -464,7 +470,7 @@ def main_classify_features():
             filename_prefix='pairs')
 
     if 1:
-        print "OPTIMIZING TEST SET PERFORMANCE"
+        print "OPTIMIZING TEST SET PERFORMANCE OF OFFICIAL DEV SPLIT"
         if flip_lr:
             train_Xy = pf.view1_train_match_task_fliplr()
         else:
@@ -485,8 +491,12 @@ def main_classify_features():
         print 'best y', earlystopper.best_y
         print 'best time', earlystopper.best_time
     else:
-        print "OPTIMIZING TEST SET PERFORMANCE"
-        train_Xy = pf.view1_resplit('train_0')
+        print "OPTIMIZING TEST SET PERFORMANCE OF RESPLIT 0"
+        if flip_lr:
+            train_Xy = pf.view1_resplit_fliplr('train_0')
+        else:
+            train_Xy = pf.view1_resplit('train_0')
+
         test_Xy = pf.view1_resplit('test_0')
         train_X, train_y = train_Xy
         test_X, test_y = test_Xy
@@ -496,9 +506,32 @@ def main_classify_features():
         test_X = (test_X - m) / s
         model, earlystopper = train_classifier(
                 (train_X, train_y),
-                (test_X, test_y), verbose=True)
+                (test_X, test_y),
+                verbose=True,
+                #step_sizes=[1e-6],
+                )
         print 'best y', earlystopper.best_y
         print 'best time', earlystopper.best_time
+
+
+def main_splits_overlap():
+    dataset = skdata.lfw.Aligned()
+    lpaths0, rpaths0, labels0 = dataset.raw_verification_task(
+            split='DevTrain')
+    lpaths1, rpaths1, labels1 = dataset.raw_verification_task(
+            split='DevTest')
+
+    set0 = set(lpaths0)
+    set0.update(rpaths0)
+
+    set1 = set(lpaths1)
+    set1.update(rpaths1)
+
+    print len(set0)
+    print len(set1)
+    print len(set0.intersection(set1))
+    print len(set0.union(set1))
+
 
 if __name__ == '__main__':
     cmd = sys.argv[1]
