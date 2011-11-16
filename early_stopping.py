@@ -59,7 +59,7 @@ def fit_w_early_stopping(model, es,
             xi = validation_X[vpos:vpos + batchsize]
             yi = validation_y[vpos:vpos + batchsize]
             pi = model.predict(xi)
-            assert np.isfinite(pi)
+            assert np.all(np.isfinite(pi))
             errs.append((yi != pi).astype('float64'))
             vpos += batchsize
 

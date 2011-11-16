@@ -27,7 +27,7 @@ except ImportError:
     pass
 import cvpr_params
 
-from theano_slm import TheanoExtractedFeatures, train_classifier
+from theano_slm import TheanoExtractedFeatures, train_multiclassifier
 
         
 class CaltechBandit(gb.GensonBandit):
@@ -38,22 +38,25 @@ class CaltechBandit(gb.GensonBandit):
 
     @classmethod
     def evaluate(cls, config, ctrl, use_theano=True):
-        result = get_performance(None, config, use_theano)
+        result = get_performance(None, config, cls.dset_name, use_theano=use_theano)
         return result
 
 
-class CaltechBanditHetero(CaltechBandit):
-    source_string = cvpr_params.string(cvpr_params.config_h)
-          
+class Caltech101Bandit(CaltechBandit):
+    dset_name = 'Caltech101'
+
+class Caltech256Bandit(CaltechBandit):
+    dset_name = 'Caltech256'
+
 
 def get_config_string(configs):
     return hashlib.sha1(repr(configs)).hexdigest()
 
 
-def get_performance(outfile, config, use_theano=True):
+def get_performance(outfile, config, dset_string, use_theano=True):
     import skdata.caltech
 
-    dataset = skdata.caltech.Caltech101()
+    dataset = getattr(skdata.caltech, dset_string)()
 
     c_hash = get_config_string(config)
 
@@ -65,11 +68,12 @@ def get_performance(outfile, config, use_theano=True):
     performance_comp = {}
     feature_file_name = 'features_' + c_hash + '.dat'
 
-    with TheanoExtractedFeatures(all_arrays, batchsize, config['desc'], 
-                                     feature_file_name) as feature_fp:
+    with TheanoExtractedFeatures(all_arrays, batchsize, [config], 
+                                     [feature_file_name]) as features_fps:
+
+        features_fp = features_fps[0]
         perfs = []
-        for split_id in range(num_splits):
-             
+        for split_id in range(num_splits):             
             train_names, ytrain = dataset.raw_classification_task(split='train_' + str(split_id))
             train_names = get_paths(train_names)
             test_names, ytest = dataset.raw_classification_task(split='test_' + str(split_id))
@@ -78,7 +82,7 @@ def get_performance(outfile, config, use_theano=True):
             train_inds = np.searchsorted(paths, train_names)
 			test_inds =  np.searchsorted(all_names, test_names)
 			
-			train_features = feature_fp[train_inds]
+			train_features = features_fp[train_inds]
 			train_Xy = (train_features, ytrain)
 			
 			test_features = features_fp[test_inds]
@@ -95,7 +99,6 @@ def get_performance(outfile, config, use_theano=True):
         cPickle.dump(result, outfh)
         outfh.close()
     return result
-
 
 
 class ImgLoaderResizer(object):

@@ -1,9 +1,17 @@
 import sys
 import hyperopt.gdist
+import cPickle
 
+import hyperopt_cvpr2012.theano_slm as theano_slm
 from hyperopt_cvpr2012.theano_slm import TheanoSLM, LFWBandit, InvalidDescription
 from hyperopt_cvpr2012.theano_slm import LFWBanditEZSearch
 from hyperopt_cvpr2012 import cvpr_params
+
+def test_multi_configs():
+    cs = cPickle.load(open('tests/test.pkl'))
+    theano_slm.TEST = True
+    theano_slm.get_test_performance(None, cs)
+    theano_slm.TEST = False
 
 def run_lfw(seed, use_theano=True, compute_features=True):
     bandit = LFWBandit()

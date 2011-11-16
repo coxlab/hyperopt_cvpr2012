@@ -41,6 +41,7 @@ def son_to_py(son):
 
 TEST = False
 TEST_NUM = 200
+DEFAULT_TLIMIT = 35
 
 
 class TheanoSLM(object):
@@ -245,10 +246,10 @@ class TheanoSLM(object):
         r_shp = x_shp[0], x_shp[1], ssqshp[2], ssqshp[3]
         return r, r_shp
 
-    def init_lpool_h(self, **kwargs):
+    def init_lpool_h(self, x, x_shp, **kwargs):
         order = kwargs.get('order', 1)
         kwargs['order'] = get_into_shape(order)
-        return init_lpool(self, **kwargs)
+        return self.init_lpool(x, x_shp, **kwargs)
 
     def init_lpool(self, x, x_shp,
             ker_shape=(3, 3),
@@ -256,9 +257,16 @@ class TheanoSLM(object):
             stride=1,
             mode='valid'):
 
-        if order == 1:
+        if hasattr(order, '__iter__'):
+            o1 = (order == 1).all()
+            o2 = (order == order.astype(np.int)).all()
+        else:
+            o1 = order == 1
+            o2 = (order == int(order))
+
+        if o1:
             r, r_shp = self.boxconv(x, x_shp, ker_shape)
-        elif order == int(order):
+        elif o2:
             r, r_shp = self.boxconv(x ** order, x_shp, ker_shape)
             r = tensor.maximum(r, 0) ** (1.0 / order)
         else:
@@ -362,7 +370,7 @@ def use_memmap(size):
 
 
 class ExtractedFeatures(object):
-    def __init__(self, X, feature_shp, batchsize, slm, filename):
+    def __init__(self, X, feature_shps, batchsize, slms, filenames, tlimit=DEFAULT_TLIMIT):
         """
         X - 4-tensor of images
         feature_shp - 4-tensor of output feature shape (len matches X)
@@ -372,121 +380,136 @@ class ExtractedFeatures(object):
 
         returns - read-only memmap of features
         """
-
-        self.feature_shp = feature_shp
         
-        self.slm = slm 
+        self.filenames = []
+        self.features = []
         
-        size = 4 * np.prod(feature_shp)
-        print('Total size: %i bytes (%.2f GB)' % (size, size / float(1e9)))
-        memmap = use_memmap(size)
-        if memmap:
-            print('Creating memmap %s for features of shape %s' % (
-                                                  filename, str(feature_shp)))
-            features_fp = np.memmap(filename,
-                dtype='float32',
-                mode='w+',
-                shape=feature_shp)
-        else:
-            print('Using memory for features of shape %s' % str(feature_shp)) 
-            features_fp = np.empty(feature_shp,dtype='float32')
-
-        if TEST:
-            print('TESTING')
-
-        i = 0
-        t0 = time.time()
-        while (not TEST) or i < TEST_NUM:
-            if i + batchsize >= len(X):
-                assert i < len(X)
-                xi = np.asarray(X[-batchsize:])
-                done = True
+        for feature_shp, filename, slm in zip(feature_shps, filenames, slms):
+            size = 4 * np.prod(feature_shp)
+            print('Total size: %i bytes (%.2f GB)' % (size, size / float(1e9)))
+            memmap = use_memmap(size)
+            if memmap:
+                print('Creating memmap %s for features of shape %s' % (
+                                                      filename, str(feature_shp)))
+                features_fp = np.memmap(filename,
+                    dtype='float32',
+                    mode='w+',
+                    shape=feature_shp)
             else:
-                xi = np.asarray(X[i:i+batchsize])
-                done = False
-            t1 = time.time()
-            feature_batch = slm.process_batch(xi)
+                print('Using memory for features of shape %s' % str(feature_shp))
+                features_fp = np.empty(feature_shp,dtype='float32')
+    
             if TEST:
-                print('compute: ', time.time() - t1)
-            t2 = time.time()
-            delta = max(0, i + batchsize - len(X))
-            assert np.all(np.isfinite(feature_batch))
-            features_fp[i:i+batchsize-delta] = feature_batch[delta:]
-            if TEST:
-                print('write: ', time.time() - t2)
-            if done:
-                break
-
-            i += batchsize
-            if (i // batchsize) % 50 == 0:
-                t_cur = time.time() - t0
-                t_per_image = (time.time() - t0) / i
-                t_tot = t_per_image * X.shape[0]
-                print 'get_features_fp: %i / %i  mins: %.2f / %.2f ' % (
-                        i , len(X),
-                        t_cur / 60.0, t_tot / 60.0)
-        # -- docs hers:
-        #    http://docs.scipy.org/doc/numpy/reference/generated/numpy.memmap.html
-        #    say that deletion is the way to flush changes !?
-        if memmap:
-            del features_fp
-            self.filename = filename
-            self.features = np.memmap(filename,
-                dtype='float32',
-                mode='r',
-                shape=feature_shp)
-        else:
-            self.filename = ''
-            self.features = features_fp
+                print('TESTING')
+    
+            i = 0
+            t0 = time.time()
+            while not TEST or i < 10:
+                if i + batchsize >= len(X):
+                    assert i < len(X)
+                    xi = np.asarray(X[-batchsize:])
+                    done = True
+                else:
+                    xi = np.asarray(X[i:i+batchsize])
+                    done = False
+                t1 = time.time()
+                feature_batch = slm.process_batch(xi)
+                if TEST:
+                    print('compute: ', time.time() - t1)
+                t2 = time.time()
+                delta = max(0, i + batchsize - len(X))
+                assert np.all(np.isfinite(feature_batch))
+                features_fp[i:i+batchsize-delta] = feature_batch[delta:]
+                if TEST:
+                    print('write: ', time.time() - t2)
+                if done:
+                    break
+    
+                i += batchsize
+                if (i // batchsize) % 50 == 0:
+                    t_cur = time.time() - t0
+                    t_per_image = (time.time() - t0) / i
+                    t_tot = t_per_image * X.shape[0]
+                    if tlimit is not None and t_tot / 60.0 > tlimit:
+                        raise TooLongException(t_tot/60.0, tlimit)
+                    print 'get_features_fp: %i / %i  mins: %.2f / %.2f ' % (
+                            i , len(X),
+                            t_cur / 60.0, t_tot / 60.0)
+            # -- docs hers:
+            #    http://docs.scipy.org/doc/numpy/reference/generated/numpy.memmap.html
+            #    say that deletion is the way to flush changes !?
+            if memmap:
+                del features_fp
+                self.filenames.append(filename)
+                features_fp = np.memmap(filename,
+                    dtype='float32',
+                    mode='r',
+                    shape=feature_shp)
+                self.features.append(features_fp)
+            else:
+                self.filenames.append('')
+                self.features.append(features_fp)
 
     def __enter__(self):
         return self.features
 
     def __exit__(self, *args):
-        if self.filename:
-            os.remove(self.filename)
+        for filename in self.filenames:
+            if filename:
+                os.remove(filename)
 
 
 class TheanoExtractedFeatures(ExtractFeatures):
-    def __init__(self, X, batchsize, desc, filename):
-		desc = copy.deepcopy(desc)
-		interpret_model(desc)
-		if X.ndim == 3:
-			t_slm = TheanoSLM(
-					in_shape=(batchsize,) + X.shape[1:] + (1,),
-					description=desc)
-		elif X.ndim == 4:
-			t_slm = TheanoSLM(
-					in_shape=(batchsize,) + X.shape[1:],
-					description=desc)
-		else:
-			raise NotImplementedError()
-	
-		if use_theano:
-			slm = t_slm
-			# -- pre-compile the function to not mess up timing
-			slm.get_theano_fn()
-		else:
-			cthor_sse = {'plugin':'cthor', 'plugin_kwargs':{'variant':'sse'}}
-			cthor = {'plugin':'cthor', 'plugin_kwargs':{}}
-			slm = SequentialLayeredModel(X.shape[1:], desc,
-										 plugin='passthrough',
-										 plugin_kwargs={'plugin_mapping': {
-											 'fbcorr': cthor_sse,
-											  'lnorm' : cthor_sse,
-											  'lpool' : cthor,
-										 }})
-	
-		feature_shp = (X.shape[0],) + t_slm.pythor_out_shape
+    def __init__(self, X, batchsize, configs, filenames, tlimit=DEFAULT_TLIMIT):
+    
+		slms = []
+		feature_shps = []
+		for config in configs:
+			desc = copy.deepcopy(config['desc'])
+			interpret_model(desc)
+			if X.ndim == 3:
+				t_slm = TheanoSLM(
+						in_shape=(batchsize,) + X.shape[1:] + (1,),
+						description=desc)
+			elif X.ndim == 4:
+				t_slm = TheanoSLM(
+						in_shape=(batchsize,) + X.shape[1:],
+						description=desc)
+			else:
+				raise NotImplementedError()
 		
-		super(TheanoExtractedFeatures, self).__init__(X, feature_shp, 
-		                                              batchsize, slm, filename)
+			if use_theano:
+				slm = t_slm
+				# -- pre-compile the function to not mess up timing
+				slm.get_theano_fn()
+			else:
+				cthor_sse = {'plugin':'cthor', 'plugin_kwargs':{'variant':'sse'}}
+				cthor = {'plugin':'cthor', 'plugin_kwargs':{}}
+				slm = SequentialLayeredModel(X.shape[1:], desc,
+											 plugin='passthrough',
+											 plugin_kwargs={'plugin_mapping': {
+												 'fbcorr': cthor,
+												  'lnorm' : cthor,
+												  'lpool' : cthor,
+											 }})
+				
+			slms.append(slm)
+			feature_shp = (X.shape[0],) + t_slm.pythor_out_shape
+			feature_shps.append(feature_shp)
+		
+		super(TheanoExtractedFeatures, self).__init__(X, feature_shp, batchsize, 
+		                                              slms, filenames, tlimit=tlimit)
+
 
 
 class InvalidDescription(Exception):
     """Model description was invalid"""
 
-
+class TooLongException(Exception):
+    """model takes too long to evaluate"""
+    def msg(tot, cutoff):
+        return 'Would take too long to execute model (%f mins, but cutoff is %s mins)' % (tot, cutoff)
+       
 def dict_add(a, b):
     rval = dict(a)
     rval.update(b)
@@ -511,17 +534,16 @@ def get_pythor_safe_description(description):
                 layer_desc[op_idx] = (newname,op_params)
     return description
 
-    
+
 
 def flatten(x):
     return list(itertools.chain(*x))
-
 
 def interpret_activ(filter, activ):
     n_filters = filter['initialize']['n_filters']
     generator = activ['generate'][0].split(':')
     vals = activ['generate'][1]
-    
+
     if generator[0] == 'random':
         dist = generator[1]
         if dist == 'uniform':
@@ -549,15 +571,39 @@ def interpret_activ(filter, activ):
         activ_vec = flatten([[v]*num for v in values] + [[values[-1]]*delta])
     else:
         raise ValueError, 'not recognized'
-    
+
     return activ_vec
-        
+
 def interpret_model(desc):
     for layer in desc:
-        for (opname,opparams) in layer:  
+        for (ind,(opname,opparams)) in enumerate(layer):
+
             if opname == 'fbcorr_h':
                 kw = opparams['kwargs']
                 if hasattr(kw.get('min_out'),'keys'):
                     kw['min_out'] = interpret_activ(opparams, kw['min_out'])
                 if hasattr(kw.get('max_out'),'keys'):
-                    kw['max_out'] = interpret_activ(opparams, kw['max_out'])                    
+                    kw['max_out'] = interpret_activ(opparams, kw['max_out'])
+            elif opname == 'lpool_h':
+                kw = opparams['kwargs']
+                if hasattr(kw.get('order'),'keys'):
+                    kw['order'] = interpret_activ(layer[0][1], kw['order'])
+
+            if opname in ['fbcorr', 'fbcorr_h']:
+                init = opparams['initialize']
+                if init.has_key('filter_size'):
+                    sz = init.pop('filter_size')
+                    init['filter_shape'] = (2*sz+1, 2*sz+1)
+            elif opname in ['lnorm', 'lnorm_h']:
+                init = opparams['kwargs']
+                if init.has_key('inker_size'):
+                    sz = init.pop('inker_size')
+                    init['inker_shape'] = (2*sz+1, 2*sz+1)
+                if init.has_key('outker_size'):
+                    sz = init.pop('outker_size')
+                    init['outker_shape'] = (2*sz+1, 2*sz+1)
+            elif opname in ['lpool', 'lpool_h']:
+                init = opparams['kwargs']
+                if init.has_key('ker_size'):
+                    sz = init.pop('ker_size')
+                    init['ker_shape'] = (2*sz+1, 2*sz+1)
