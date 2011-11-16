@@ -328,6 +328,43 @@ class PairFeatures(object):
         arr = self.compute_pairs_features(lpaths, rpaths)
         return arr, labels
 
+    def view1_resplit(self, name):
+        lpaths, rpaths, labels = self.dataset.raw_verification_task_resplit(
+                split=name)
+        arr = self.compute_pairs_features(lpaths, rpaths)
+        return arr, labels
+
+    def compute_pairs_features_fliplr(self, lpaths, rpaths, labels):
+        arr_shape = (len(lpaths) * 4,
+                self.comparison.get_num_features(self.features.shape))
+        arr = np.empty(arr_shape, dtype=self.features.dtype)
+        arr_labels = np.empty(arr_shape[0], dtype='int')
+
+        # -- load features into memory if possible
+        #    for random access
+        idxable_features = np.array(self.features)
+
+        for (ii, (lpath, rpath)) in enumerate(zip(lpaths, rpaths)):
+            lfeat = idxable_features[self.idx_of_path[lpath]]
+            rfeat = idxable_features[self.idx_of_path[rpath]]
+            arr[4 * ii + 0] = self.comparison(lfeat, rfeat)
+            arr[4 * ii + 1] = self.comparison(lfeat[:, ::-1], rfeat)
+            arr[4 * ii + 2] = self.comparison(lfeat, rfeat[:, ::-1])
+            arr[4 * ii + 3] = self.comparison(lfeat[:, ::-1], rfeat[:, ::-1])
+            arr_labels[4 * ii: 4 * ii + 4] = labels[ii]
+            if ii % 100 == 0:
+                print('get_pair_fp  %i / %i' % (ii * 4, len(arr)))
+        return arr, arr_labels
+
+    def view1_train_match_task_fliplr(self):
+        """
+        Returns an image verification task
+        """
+        lpaths, rpaths, labels = self.dataset.raw_verification_task(
+                split='DevTrain')
+        return self.compute_pairs_features_fliplr(lpaths, rpaths, labels)
+
+
 def main_result_from_trial():
     _, cmd, bandit_str, algo_str, trials_idx = sys.argv
     mj = MongoJobs.new_from_connection_str(
@@ -337,6 +374,39 @@ def main_result_from_trial():
     mexp.refresh_trials_results()
     print mexp.results[int(trials_idx)]
 
+def main_features_from_dan():
+    _, cmd, idx, filename = sys.argv
+    idx = int(idx)
+
+    batchsize=4
+    dataset = skdata.lfw.Aligned()
+    Xr, yr = dataset.raw_classification_task()
+    Xr = np.array(Xr)
+    X = skdata.larray.lmap(
+                ImgLoaderResizer(
+                    shape=(200, 200),  # lfw-specific
+                    dtype='float32'),
+                Xr)
+    print('extracting from trial %i' % idx)
+    desc = cPickle.load(open('/home/bergstra/Downloads/thingy.pkl'))[idx]['spec']['desc']
+    interpret_model(desc)
+    if X.ndim == 3:
+        slm = TheanoSLM(
+                in_shape=(batchsize,) + X.shape[1:] + (1,),
+                description=desc)
+    elif X.ndim == 4:
+        slm = TheanoSLM(
+                in_shape=(batchsize,) + X.shape[1:],
+                description=desc)
+    else:
+        raise NotImplementedError()
+    slm.get_theano_fn()  # -- pre-compile the feature extractor
+
+    extractor = FeatureExtractor(X, slm,
+            filename=filename,
+            batchsize=batchsize,
+            TEST=False)
+    extractor.compute_features(use_memmap=True)
 
 def main_features_from_trial():
     _, cmd, bandit_str, algo_str, trials_idx, filename = sys.argv
@@ -393,31 +463,40 @@ def main_classify_features():
             comparison=getattr(comp_module, comparison),
             filename_prefix='pairs')
 
-    if flip_lr:
-        train_Xy = pf.view1_train_match_task_fliplr()
-    else:
-        train_Xy = pf.view1_train_match_task()
-    test_Xy = pf.view1_test_match_task()
-
     if 1:
-        train_X, train_y = train_Xy
-        np.random.RandomState(123).shuffle(train_X)
-        np.random.RandomState(123).shuffle(train_y)
-        fit_Xy, valid_Xy, train_mean, train_std = split_center_normalize(
-                train_X, train_y, batchsize=10)
+        print "OPTIMIZING TEST SET PERFORMANCE"
+        if flip_lr:
+            train_Xy = pf.view1_train_match_task_fliplr()
+        else:
+            train_Xy = pf.view1_train_match_task()
+        test_Xy = pf.view1_test_match_task()
 
-        model, earlystopper = train_classifier(fit_Xy, valid_Xy, verbose=True,
-                batchsize=10)
+        train_X, train_y = train_Xy
+        test_X, test_y = test_Xy
+
+        m = np.mean(train_X, axis=0)
+        s = np.std(train_X, axis=0)
+        train_X = (train_X - m) / s
+        test_X = (test_X - m) / s
+
+        model, earlystopper = train_classifier(
+                (train_X, train_y),
+                (test_X, test_y), verbose=True)
         print 'best y', earlystopper.best_y
         print 'best time', earlystopper.best_time
-        predictions = model.predict((test_Xy[0] - train_mean) / train_std)
-        print predictions
-        print test_Xy[1]
-        print 'test', np.mean(
-                (predictions!= test_Xy[1] * 2 - 1 ).astype('float32'))
-    elif 0:
+    else:
         print "OPTIMIZING TEST SET PERFORMANCE"
-        model, earlystopper = train_classifier(train_Xy, test_Xy, verbose=True)
+        train_Xy = pf.view1_resplit('train_0')
+        test_Xy = pf.view1_resplit('test_0')
+        train_X, train_y = train_Xy
+        test_X, test_y = test_Xy
+        m = np.mean(train_X, axis=0)
+        s = np.std(train_X, axis=0)
+        train_X = (train_X - m) / s
+        test_X = (test_X - m) / s
+        model, earlystopper = train_classifier(
+                (train_X, train_y),
+                (test_X, test_y), verbose=True)
         print 'best y', earlystopper.best_y
         print 'best time', earlystopper.best_time
 

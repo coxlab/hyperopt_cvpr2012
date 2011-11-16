@@ -26,6 +26,7 @@ from pythor3.operation import lnorm_
 import asgd  # use master branch from https://github.com/jaberg/asgd
 import skdata.larray
 import skdata.utils
+import skdata.lfw
 import hyperopt.genson_bandits as gb
 
 
@@ -559,12 +560,10 @@ def get_test_performance(outfile, config, use_theano=True, flip_lr=False, compar
     return get_performance(outfile, config, train_test_splits=splits, 
                            use_theano=use_theano, flip_lr=flip_lr, tlimit=None,
                            comparisons=comparisons)
-    
-    
+
 
 def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
                     flip_lr=False, tlimit=35, comparisons=DEFAULT_COMPARISONS):
-    import skdata.lfw
 
     c_hash = get_config_string(configs)
 
@@ -665,95 +664,6 @@ def use_memmap(size):
         memmap = True
     return memmap
 
-
-class ExtractedFeatures(object):
-    def __init__(self, X, feature_shps, batchsize, slms, filenames, tlimit=35):
-        """
-        X - 4-tensor of images
-        feature_shp - 4-tensor of output feature shape (len matches X)
-        batchsize - number of features to extract in parallel
-        slm - feature-extraction module (with .process_batch() fn)
-        filename - store features to memmap here
-
-        returns - read-only memmap of features
-        """
-        
-        self.filenames = []
-        self.features = []
-        
-        for feature_shp, filename, slm in zip(feature_shps, filenames, slms):
-            size = 4 * np.prod(feature_shp)
-            print('Total size: %i bytes (%.2f GB)' % (size, size / float(1e9)))
-            memmap = use_memmap(size)
-            if memmap:
-                print('Creating memmap %s for features of shape %s' % (
-                                                      filename, str(feature_shp)))
-                features_fp = np.memmap(filename,
-                    dtype='float32',
-                    mode='w+',
-                    shape=feature_shp)
-            else:
-                print('Using memory for features of shape %s' % str(feature_shp))
-                features_fp = np.empty(feature_shp,dtype='float32')
-    
-            if TEST:
-                print('TESTING')
-    
-            i = 0
-            t0 = time.time()
-            while not TEST or i < 10:
-                if i + batchsize >= len(X):
-                    assert i < len(X)
-                    xi = np.asarray(X[-batchsize:])
-                    done = True
-                else:
-                    xi = np.asarray(X[i:i+batchsize])
-                    done = False
-                t1 = time.time()
-                feature_batch = slm.process_batch(xi)
-                if TEST:
-                    print('compute: ', time.time() - t1)
-                t2 = time.time()
-                delta = max(0, i + batchsize - len(X))
-                assert np.all(np.isfinite(feature_batch))
-                features_fp[i:i+batchsize-delta] = feature_batch[delta:]
-                if TEST:
-                    print('write: ', time.time() - t2)
-                if done:
-                    break
-    
-                i += batchsize
-                if (i // batchsize) % 50 == 0:
-                    t_cur = time.time() - t0
-                    t_per_image = (time.time() - t0) / i
-                    t_tot = t_per_image * X.shape[0]
-                    if tlimit is not None and t_tot / 60.0 > tlimit:
-                        raise TooLongException(t_tot/60.0, tlimit)
-                    print 'get_features_fp: %i / %i  mins: %.2f / %.2f ' % (
-                            i , len(X),
-                            t_cur / 60.0, t_tot / 60.0)
-            # -- docs hers:
-            #    http://docs.scipy.org/doc/numpy/reference/generated/numpy.memmap.html
-            #    say that deletion is the way to flush changes !?
-            if memmap:
-                del features_fp
-                self.filenames.append(filename)
-                features_fp = np.memmap(filename,
-                    dtype='float32',
-                    mode='r',
-                    shape=feature_shp)
-                self.features.append(features_fp)
-            else:
-                self.filenames.append('')
-                self.features.append(features_fp)
-
-    def __enter__(self):
-        return self.features
-
-    def __exit__(self, *args):
-        for filename in self.filenames:
-            if filename:
-                os.remove(filename)
 
 
 class PairFeatures(object):
@@ -866,17 +776,12 @@ class PairFeatures(object):
 class InvalidDescription(Exception):
     """Model description was invalid"""
 
-class TooLongException(Exception):
-    """model takes too long to evaluate"""
-    def msg(tot, cutoff):
-        return 'Would take too long to execute model (%f mins, but cutoff is %s mins)' % (tot, cutoff)
-       
-
 
 def dict_add(a, b):
     rval = dict(a)
     rval.update(b)
     return rval
+
 
 def get_into_shape(x):
     if hasattr(x,'__iter__'):
@@ -885,6 +790,7 @@ def get_into_shape(x):
         x = x[np.newaxis, :, np.newaxis, np.newaxis]
         x = x.astype(np.float32)
     return x
+
 
 def get_pythor_safe_description(description):
     description = copy.deepcopy(description)
@@ -896,42 +802,8 @@ def get_pythor_safe_description(description):
     return description
 
 
-
 def get_config_string(configs):
     return hashlib.sha1(repr(configs)).hexdigest()
-
-
-class ImgLoaderResizer(object):
-    """ Load 250x250 greyscale images, return normalized 200x200 float32 ones.
-    """
-    def __init__(self, shape=None, ndim=None, dtype='float32', mode=None):
-        assert shape == (200, 200)
-        assert dtype == 'float32'
-        self._shape = shape
-        if ndim is None:
-            self._ndim = None if (shape is None) else len(shape)
-        else:
-            self._ndim = ndim
-        self._dtype = dtype
-        self.mode = mode
-
-    def rval_getattr(self, attr, objs):
-        if attr == 'shape' and self._shape is not None:
-            return self._shape
-        if attr == 'ndim' and self._ndim is not None:
-            return self._ndim
-        if attr == 'dtype':
-            return self._dtype
-        raise AttributeError(attr)
-
-    def __call__(self, file_path):
-        im = Image.open(file_path)
-        im = im.resize((200, 200), Image.ANTIALIAS)
-        rval = np.asarray(im, 'float32')
-        rval -= rval.mean()
-        rval /= max(rval.std(), 1e-3)
-        assert rval.shape == (200, 200)
-        return rval
 
 
 def unroll(X):

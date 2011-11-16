@@ -81,7 +81,7 @@ def train_classifier(train_Xy, test_Xy, verbose=False, batchsize=10):
                     n_features=n_features,
                     l2_regularization=1e-3,
                     sgd_step_size0=step_size0),
-                es=EarlyStopping(warmup=50), # unit: validation intervals
+                es=EarlyStopping(warmup=50, max_iters=1000), # unit: validation intervals
                 train_X=train_X,
                 train_y=train_y,
                 validation_X=test_X,
