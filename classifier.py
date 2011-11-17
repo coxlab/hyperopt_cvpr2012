@@ -55,7 +55,7 @@ def split_center_normalize(X, y,
             train_mean,
             train_std)
 
-        
+
 def train_classifier_normalize(train_Xy, test_Xy, verbose=False, batchsize=10,
         step_sizes=(3e-4, 1e-4, 3e-5, 1e-5, 3e-6, 1e-6)):
 
@@ -65,16 +65,16 @@ def train_classifier_normalize(train_Xy, test_Xy, verbose=False, batchsize=10,
 
     train_mean = train_X.mean(axis=0)
     train_std = train_X.std(axis=0)
-    
+
     def normalize(XX):
-        return (XX - train_mean) / np.maximum(train_std, 1e-6)    
-        
+        return (XX - train_mean) / np.maximum(train_std, 1e-6)
+
     train_X = normalize(train_X)
     test_X = normalize(test_X)
-    
+
     train_Xy = (train_X, train_y)
     test_Xy = (test_X, test_y)
-    
+
     return train_classifier(train_Xy, test_Xy, verbose=verbose, batchsize=batchsize,
                             step_sizes=step_sizes)
 
@@ -97,7 +97,7 @@ def train_classifier(train_Xy, test_Xy, verbose=False, batchsize=10,
 
     # -- repeat training for several learning rates
     #    take model that was best on held-out data
-    results = [fit_w_early_stopping(
+    results = [(fit_w_early_stopping(
                 model=asgd.naive_asgd.NaiveBinaryASGD(
                     n_features=n_features,
                     l2_regularization=1e-3,
@@ -110,8 +110,12 @@ def train_classifier(train_Xy, test_Xy, verbose=False, batchsize=10,
                 batchsize=batchsize,
                 validation_interval=validation_interval,
                 verbose=verbose
-                )
+                ), step_size0)
             for step_size0 in step_sizes]
-    results.sort(cmp=lambda a, b: cmp(a[1].best_y, b[1].best_y))
-    return results[0]
+    results.sort(cmp=lambda a, b: cmp(a[0][1].best_y, b[0][1].best_y))
+    result = results[0]
+    model, es, data = result[0]
+    step_size0 = result[1]
+    data['step_size0'] = step_size0
+    return model, es, data
 

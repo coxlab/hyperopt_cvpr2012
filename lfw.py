@@ -27,10 +27,10 @@ except ImportError:
     pass
 import cvpr_params
 import comparisons as comp_module
-from theano_slm import (TheanoExtractedFeatures,  
+from theano_slm import (TheanoExtractedFeatures,
                         use_memmap)
 from classifier import train_classifier_normalize
-   
+
 
 DEFAULT_COMPARISONS = ['mult', 'absdiff', 'sqrtabsdiff', 'sqdiff']
 
@@ -185,7 +185,7 @@ class LFWBanditEZSearch2(gb.GensonBandit):
                     stride=2,
                     ker_shape=choice([(3,3),(5,5),(7,7),(9,9)]),
                     order=choice([1, 2, 10, uniform(1, 10)])))
-        activ =  {'min_out' : choice([null, 0]), 
+        activ =  {'min_out' : choice([null, 0]),
                   'max_out' : choice([1, null])}
 
         filter1 = dict(
@@ -195,7 +195,7 @@ class LFWBanditEZSearch2(gb.GensonBandit):
                     generate=choice([('random:uniform',
                                      {'rseed': choice([11, 12, 13, 14, 15])}),
                                      ('random:gabor',
-                                     {'min_wl': 2, 'max_wl': 20 , 
+                                     {'min_wl': 2, 'max_wl': 20 ,
                                       'rseed': choice([11, 12, 13, 14, 15])})
                                      ])),
                 kwargs=activ)
@@ -243,12 +243,12 @@ def get_test_performance(outfile, config, use_theano=True, flip_lr=False, compar
 
     T = ['fold_' + str(i) for i in range(10)]
     splits = [(T[:i] + T[i+1:], T[i]) for i in range(10)]
-    
-    return get_performance(outfile, config, train_test_splits=splits, 
+
+    return get_performance(outfile, config, train_test_splits=splits,
                            use_theano=use_theano, flip_lr=flip_lr, tlimit=None,
                            comparisons=comparisons)
-    
-    
+
+
 
 def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
                     flip_lr=False, tlimit=35, comparisons=DEFAULT_COMPARISONS):
@@ -268,7 +268,7 @@ def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
 
     train_splits, test_splits = zip(*train_test_splits)
     all_splits = test_splits + train_splits
-        
+
     X, y, Xr = get_relevant_images(dataset, splits = all_splits, dtype='float32')
 
     batchsize = 4
@@ -278,27 +278,31 @@ def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
     feature_file_names = ['features_' + c_hash + '_' + str(i) +  '.dat' for i in range(len(configs))]
     train_pairs_filename = 'train_pairs_' + c_hash + '.dat'
     test_pairs_filename = 'test_pairs_' + c_hash + '.dat'
-    
-    with TheanoExtractedFeatures(X, batchsize, configs, feature_file_names, 
+
+    with TheanoExtractedFeatures(X, batchsize, configs, feature_file_names,
                                  use_theano=use_theano, tlimit=tlimit) as features_fps:
-    
+
         feature_shps = [features_fp.shape for features_fp in features_fps]
+        datas = []
         for comparison in comparisons:
             print('Doing comparison %s' % comparison)
             perf = []
+            datas[comparison] = []
             comparison_obj = getattr(comp_module,comparison)
             #how does tricks interact with n_features, if at all?
             n_features = sum([comparison_obj.get_num_features(f_shp) for f_shp in feature_shps])
             for train_split, test_split in train_test_splits:
                 with PairFeatures(dataset, train_split, Xr,
                         n_features, features_fps, comparison_obj,
-                                  train_pairs_filename, flip_lr=flip_lr) as train_Xy: 
+                                  train_pairs_filename, flip_lr=flip_lr) as train_Xy:
                     with PairFeatures(dataset, test_split,
                             Xr, n_features, features_fps, comparison_obj,
                                       test_pairs_filename) as test_Xy:
-                        model, earlystopper = train_classifier_normalize(train_Xy, test_Xy)
+                        model, earlystopper, data = train_classifier_normalize(train_Xy, test_Xy)
                         perf.append(earlystopper.best_y)
                         n_test_examples = len(test_Xy[0])
+                        data['train_test_split'] = (train_split, test_split)
+                        datas[comparison].append(data)
             performance_comp[comparison] = float(np.array(perf).mean())
 
     performance = float(np.array(performance_comp.values()).min())
@@ -306,6 +310,7 @@ def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
             loss=performance,
             loss_variance=performance * (1 - performance) / n_test_examples,
             performances=performance_comp,
+            data=datas,
             status='ok')
 
     if outfile is not None:
@@ -473,26 +478,26 @@ def get_relevant_images(dataset, splits=None, dtype='uint8'):
     # load & resize logic is LFW Aligned -specific
     assert 'Aligned' in str(dataset.__class__)
 
-    
+
     Xr, yr = dataset.raw_classification_task()
     Xr = np.array(Xr)
 
     if splits is not None:
         splits = unroll(splits)
-        
+
     if splits is not None:
         all_images = []
-        for s in splits:        
+        for s in splits:
             if s.startswith('re'):
                 A, B, c = dataset.raw_verification_task_resplit(split=s[2:])
             else:
                 A, B, c = dataset.raw_verification_task(split=s)
             all_images.extend([A,B])
         all_images = np.unique(np.concatenate(all_images))
-    
+
         inds = np.searchsorted(Xr, all_images)
         Xr = Xr[inds]
-        yr = yr[inds]        
+        yr = yr[inds]
 
     X = skdata.larray.lmap(
                 ImgLoaderResizer(

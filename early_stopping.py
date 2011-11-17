@@ -97,13 +97,8 @@ def fit_w_early_stopping(model, es,
             tpos += batchsize
 
 
-    result = {'coef' : best_model.asgd_weights,
-     'intercept' : best_model.asgd_bias,
-     'test_labels' : validation_y,
-     'test_prediction' : test_prediction,
-     }
-    stats = get_stats(validation_y, best_test_prediction, [-1, 1])
-    result.update(stats)
+    result = get_stats(validation_y, best_test_prediction, [-1, 1])
+    result['test_prediction'] =  best_test_prediction.tolist()
 
     return best_model, es, result
 
