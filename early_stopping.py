@@ -59,6 +59,7 @@ def fit_w_early_stopping(model, es,
     tpos = 0
     best_model = None
     best_test_prediction = None
+    best_test_errors = None
 
     while not es.done():
         vpos = 0
@@ -85,6 +86,7 @@ def fit_w_early_stopping(model, es,
         if best_model is None or es.cur_time == es.best_time:
             best_model = copy.deepcopy(model)
             best_test_prediction = test_prediction
+            best_test_errors = errs
 
         # -- training loop
         for i in xrange(validation_interval):
@@ -96,9 +98,8 @@ def fit_w_early_stopping(model, es,
             model.partial_fit(xi, yi)
             tpos += batchsize
 
-
     result = get_stats(validation_y, best_test_prediction, [-1, 1])
-    result['test_prediction'] =  best_test_prediction.tolist()
+    result['test_errors'] = best_test_errors
 
     return best_model, es, result
 
