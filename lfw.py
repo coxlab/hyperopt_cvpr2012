@@ -32,7 +32,7 @@ from theano_slm import (TheanoExtractedFeatures,
 from classifier import train_classifier_normalize
 
 
-DEFAULT_COMPARISONS = ['mult', 'absdiff', 'sqrtabsdiff', 'sqdiff']
+DEFAULT_COMPARISONS = ['mult', 'sqrtabsdiff']
 
 class LFWBandit(gb.GensonBandit):
     source_string = cvpr_params.string(cvpr_params.config)
@@ -283,7 +283,7 @@ def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
                                  use_theano=use_theano, tlimit=tlimit) as features_fps:
 
         feature_shps = [features_fp.shape for features_fp in features_fps]
-        datas = []
+        datas = {}
         for comparison in comparisons:
             print('Doing comparison %s' % comparison)
             perf = []

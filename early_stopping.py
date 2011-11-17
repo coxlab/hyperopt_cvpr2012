@@ -99,7 +99,7 @@ def fit_w_early_stopping(model, es,
             tpos += batchsize
 
     result = get_stats(validation_y, best_test_prediction, [-1, 1])
-    result['test_errors'] = best_test_errors
+    result['test_errors'] = np.concatenate(best_test_errors).astype(np.int).tolist()
 
     return best_model, es, result
 
@@ -107,7 +107,7 @@ def fit_w_early_stopping(model, es,
 ####stats
 
 def get_stats(test_actual, test_predicted, labels):
-    test_accuracy = float(100*(test_predicted == test_actual).sum() / float(len(test_prediction)))
+    test_accuracy = float(100*(test_predicted == test_actual).sum() / float(len(test_predicted)))
     test_aps = []
     test_aucs = []
     if len(labels) == 2:
