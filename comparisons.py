@@ -5,7 +5,7 @@ class Comparison(object):
         return shp[1] * shp[2] * shp[3]
     
 class Concatenate(Comparison):
-    def get_num_features(self,shp):
+    def get_num_features(self, shp):
         return 2 * shp[1] * shp[2] * shp[3]
     def __call__(self, x, y):
         return np.concatenate([x.flatten(),y.flatten()])
