@@ -3,7 +3,7 @@ An early-stopping heuristic
 """
 import copy
 import numpy as np
-import scipy as sp
+
 
 class EarlyStopping(object):
     def __init__(self, warmup, improvement_thresh=0.2, patience=2.0,
@@ -98,59 +98,8 @@ def fit_w_early_stopping(model, es,
             model.partial_fit(xi, yi)
             tpos += batchsize
 
-    result = get_stats(validation_y, best_test_prediction, [-1, 1])
-    result['test_errors'] = np.concatenate(best_test_errors).astype(np.int).tolist()
-
-    return best_model, es, result
+    return best_model, es, best_test_prediction, best_test_errors
 
 
-####stats
 
-def get_stats(test_actual, test_predicted, labels):
-    test_accuracy = float(100*(test_predicted == test_actual).sum() / float(len(test_predicted)))
-    test_aps = []
-    test_aucs = []
-    if len(labels) == 2:
-        labels = labels[1:]
-    for label in labels:
-        test_prec,test_rec = precision_and_recall(test_actual,test_predicted,label)
-        test_ap = ap_from_prec_and_rec(test_prec,test_rec)
-        test_aps.append(test_ap)
-        test_auc = auc_from_prec_and_rec(test_prec,test_rec)
-        test_aucs.append(test_auc)
-    test_ap = np.array(test_aps).mean()
-    test_auc = np.array(test_aucs).mean()
-    return {'test_accuracy' : test_accuracy,
-            'test_ap' : test_ap,
-            'test_auc' : test_auc}
-
-
-def precision_and_recall(actual,predicted,cls):
-    c = (actual == cls)
-    si = sp.argsort(-c)
-    tp = sp.cumsum(sp.single(predicted[si] == cls))
-    fp = sp.cumsum(sp.single(predicted[si] != cls))
-    rec = tp /sp.sum(predicted == cls)
-    prec = tp / (fp + tp)
-    return prec,rec
-
-
-def ap_from_prec_and_rec(prec,rec):
-    ap = 0
-    rng = sp.arange(0, 1.1, .1)
-    for th in rng:
-        parray = prec[rec>=th]
-        if len(parray) == 0:
-            p = 0
-        else:
-            p = parray.max()
-        ap += p / rng.size
-    return ap
-
-
-def auc_from_prec_and_rec(prec,rec):
-    #area under curve
-    h = sp.diff(rec)
-    auc = sp.sum(h * (prec[1:] + prec[:-1])) / 2.0
-    return auc
 

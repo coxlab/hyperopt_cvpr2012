@@ -29,7 +29,8 @@ import cvpr_params
 import comparisons as comp_module
 from theano_slm import (TheanoExtractedFeatures,
                         use_memmap)
-from classifier import train_classifier_normalize
+from classifier import (train_classifier_normalize,
+                        evaluate_classifier_normalize)
 
 
 DEFAULT_COMPARISONS = ['mult', 'sqrtabsdiff']
@@ -41,8 +42,8 @@ class LFWBandit(gb.GensonBandit):
         super(LFWBandit, self).__init__(source_string=self.source_string)
 
     @classmethod
-    def evaluate(cls, config, ctrl, use_theano=True):
-        result = get_performance(None, config, use_theano=use_theano)
+    def evaluate(cls, config, ctrl, use_theano=True, comparisons = DEFAULT_COMPARISONS):
+        result = get_performance(None, config, use_theano=use_theano, comparisons=comparisons)
         return result
 
 
@@ -242,7 +243,19 @@ def get_config_string(configs):
 def get_test_performance(outfile, config, use_theano=True, flip_lr=False, comparisons=DEFAULT_COMPARISONS):
 
     T = ['fold_' + str(i) for i in range(10)]
-    splits = [(T[:i] + T[i+1:], T[i]) for i in range(10)]
+    splits = []
+    for i in range(10):
+        inds = range(10)
+        inds.remove(i)
+        v_ind = (i+1) % 10
+        inds.remove(v_ind)
+        test = T[i]
+        validate = T[v_ind]
+        train = [T[ind] for ind in inds]
+
+        splits.append({'train': train,
+                       'validate': validate,
+                       'test': test})
 
     return get_performance(outfile, config, train_test_splits=splits,
                            use_theano=use_theano, flip_lr=flip_lr, tlimit=None,
@@ -264,10 +277,13 @@ def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
     dataset = skdata.lfw.Aligned()
 
     if train_test_splits is None:
-        train_test_splits = [('DevTrain','DevTest')]
+        train_test_splits = [{'train': 'DevTrain', 'test': 'DevTest'}]
 
-    train_splits, test_splits = zip(*train_test_splits)
-    all_splits = test_splits + train_splits
+    train_splits = [tts['train'] for tts in train_test_splits]
+    validate_splits = [tts.get('validate',[]) for tts in train_test_splits]
+    test_splits = [tts['test'] for tts in train_test_splits]
+
+    all_splits = test_splits + validate_splits + train_splits
 
     X, y, Xr = get_relevant_images(dataset, splits = all_splits, dtype='float32')
 
@@ -291,18 +307,45 @@ def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
             comparison_obj = getattr(comp_module,comparison)
             #how does tricks interact with n_features, if at all?
             n_features = sum([comparison_obj.get_num_features(f_shp) for f_shp in feature_shps])
-            for train_split, test_split in train_test_splits:
-                with PairFeatures(dataset, train_split, Xr,
-                        n_features, features_fps, comparison_obj,
-                                  train_pairs_filename, flip_lr=flip_lr) as train_Xy:
-                    with PairFeatures(dataset, test_split,
-                            Xr, n_features, features_fps, comparison_obj,
-                                      test_pairs_filename) as test_Xy:
-                        model, earlystopper, data = train_classifier_normalize(train_Xy, test_Xy)
-                        perf.append(earlystopper.best_y)
-                        n_test_examples = len(test_Xy[0])
-                        data['train_test_split'] = (train_split, test_split)
-                        datas[comparison].append(data)
+            for tts in train_test_splits:
+                print('Split', tts)
+                if tts.get('validate') is not None:
+                    train_split = tts['train']
+                    validate_split = tts['validate']
+                    test_split = tts['test']
+                    with PairFeatures(dataset, train_split, Xr,
+                            n_features, features_fps, comparison_obj,
+                                      train_pairs_filename, flip_lr=flip_lr) as train_Xy:
+                        with PairFeatures(dataset, validate_split,
+                                Xr, n_features, features_fps, comparison_obj,
+                                          test_pairs_filename) as validate_Xy:
+                            with PairFeatures(dataset, test_split,
+                                Xr, n_features, features_fps, comparison_obj,
+                                          test_pairs_filename) as test_Xy:
+                                model, earlystopper, data, train_mean, train_std = \
+                                                 train_classifier_normalize(train_Xy, validate_Xy)
+                                result = evaluate_classifier_normalize(model, test_Xy, train_mean, train_std)
+                                perf.append(result['loss'])
+                                n_test_examples = len(test_Xy[0])
+                                result['split'] = tts
+                                datas[comparison].append(result)
+
+                else:
+                    train_split = tts['train']
+                    test_split = tts['test']
+                    with PairFeatures(dataset, train_split, Xr,
+                            n_features, features_fps, comparison_obj,
+                                      train_pairs_filename, flip_lr=flip_lr) as train_Xy:
+                        with PairFeatures(dataset, test_split,
+                                Xr, n_features, features_fps, comparison_obj,
+                                          test_pairs_filename) as test_Xy:
+                            model, earlystopper, data, train_mean, train_std = \
+                                                 train_classifier_normalize(train_Xy, test_Xy)
+                            perf.append(data['loss'])
+                            n_test_examples = len(test_Xy[0])
+                            data['split'] = tts
+                            datas[comparison].append(data)
+
             performance_comp[comparison] = float(np.array(perf).mean())
 
     performance = float(np.array(performance_comp.values()).min())
