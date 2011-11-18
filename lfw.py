@@ -293,6 +293,7 @@ def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
     performance_comp = {}
     feature_file_names = ['features_' + c_hash + '_' + str(i) +  '.dat' for i in range(len(configs))]
     train_pairs_filename = 'train_pairs_' + c_hash + '.dat'
+    validate_pairs_filename = 'validate_pairs_' + c_hash + '.dat'
     test_pairs_filename = 'test_pairs_' + c_hash + '.dat'
 
     with TheanoExtractedFeatures(X, batchsize, configs, feature_file_names,
@@ -318,7 +319,7 @@ def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
                                       train_pairs_filename, flip_lr=flip_lr) as train_Xy:
                         with PairFeatures(dataset, validate_split,
                                 Xr, n_features, features_fps, comparison_obj,
-                                          test_pairs_filename) as validate_Xy:
+                                          validate_pairs_filename) as validate_Xy:
                             with PairFeatures(dataset, test_split,
                                 Xr, n_features, features_fps, comparison_obj,
                                           test_pairs_filename) as test_Xy:
@@ -326,6 +327,7 @@ def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
                                                  train_classifier_normalize(train_Xy, validate_Xy)
                                 result = evaluate_classifier_normalize(model, test_Xy, train_mean, train_std)
                                 perf.append(result['loss'])
+                                print ('Split',tts, 'comparison', comparison, 'loss is', result[loss])
                                 n_test_examples = len(test_Xy[0])
                                 result['split'] = tts
                                 datas[comparison].append(result)
