@@ -138,8 +138,10 @@ def evaluate_classifier(model, test_X, test_y,
         batchsize=10,
         verbose=0):
 
-    tpos = 0
+    if set(test_y) == set([0, 1]):
+        test_y = test_y * 2 - 1
 
+    tpos = 0
     vpos = 0
     errs = []
     test_prediction = []

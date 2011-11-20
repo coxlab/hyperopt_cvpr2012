@@ -325,9 +325,10 @@ def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
                                           test_pairs_filename) as test_Xy:
                                 model, earlystopper, data, train_mean, train_std = \
                                                  train_classifier_normalize(train_Xy, validate_Xy)
+                                print('earlystopper', earlystopper.best_y)
                                 result = evaluate_classifier_normalize(model, test_Xy, train_mean, train_std)
                                 perf.append(result['loss'])
-                                print ('Split',tts, 'comparison', comparison, 'loss is', result[loss])
+                                print ('Split',tts, 'comparison', comparison, 'loss is', result['loss'])
                                 n_test_examples = len(test_Xy[0])
                                 result['split'] = tts
                                 datas[comparison].append(result)
