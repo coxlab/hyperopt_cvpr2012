@@ -543,7 +543,7 @@ def train_features(infiles, inshapes, im_names, train_test_splits,
         perf = []
         datas[comparison] = []
         for tts in train_test_splits:
-            result = R[ind]
+            result, n_test_examples = R[ind]
             result['split'] = tts
             perf.append(result['loss'])
             datas[comparison].append(result)
