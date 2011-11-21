@@ -399,15 +399,13 @@ class PairFeatures(object):
         assert len(Aind) == len(Bind)
         pair_shp = (len(labels), n_features)
 
-        if filename is None:
-            filename = random_id() + '.dat'            
-
+        
         if flip_lr:
             pair_shp = (4 * pair_shp[0], pair_shp[1])
 
         size = 4 * np.prod(pair_shp)
         print('Total size: %i bytes (%.2f GB)' % (size, size / float(1e9)))
-        memmap = use_memmap(size)
+        memmap = filename is not None and use_memmap(size)
         if memmap:
             print('get_pair_fp memmap %s for features of shape %s' % (
                                                     filename, str(pair_shp)))
@@ -497,7 +495,7 @@ def test_splits():
     return splits
     
 
-def get_features(outfiles, configs, train_test_splits):
+def get_relevant(train_test_splits):
     import skdata.lfw
 
     dataset = skdata.lfw.Aligned()
@@ -508,7 +506,12 @@ def get_features(outfiles, configs, train_test_splits):
 
     all_splits = test_splits + validate_splits + train_splits
 
-    arrays, labels, im_names = get_relevant_images(dataset, splits = all_splits, dtype='float32')
+    return get_relevant_images(dataset, splits = all_splits, dtype='float32')
+
+
+def get_features(outfiles, configs, train_test_splits):
+
+    arrays, labels, im_names = get_relevant_data(train_test_splits)
 
     batchsize = 4
     
@@ -525,18 +528,15 @@ def get_features(outfiles, configs, train_test_splits):
 def train_features(infiles, inshapes, im_names, train_test_splits, 
                    flip_lr=False, 
                    comparisons=DEFAULT_COMPARISONS,
-                   parallel=False, 
+                   n_jobs=False, 
                    outfile=None):
                        
     assert all([hasattr(comp_module,comparison) for comparison in comparisons])
     
     datas = {}
-    if not parallel:            
-        R = [train_features_single(infiles, inshapes, im_names, tts, comparison, flip_lr=flip_lr) for comp in comparisons for tts in train_test_splits]
-    else:
-        from joblib import Parallel, delayed
-        g = (delayed(train_features_single)(infiles, inshapes, im_names, tts, comp, flip_lr=flip_lr) for comp in comparisons for tts in train_test_splits)
-        R = Parallel(n_jobs=-1)(g)
+	from joblib import Parallel, delayed
+	g = (delayed(train_features_single)(infiles, inshapes, im_names, tts, comp, flip_lr=flip_lr) for comp in comparisons for tts in train_test_splits)
+	R = Parallel(n_jobs=n_jobs)(g)
 
     ind = 0
     for comparison in comparisons:
