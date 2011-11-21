@@ -495,7 +495,7 @@ def test_splits():
     return splits
     
 
-def get_relevant(train_test_splits):
+def get_relevant_data(train_test_splits):
     import skdata.lfw
 
     dataset = skdata.lfw.Aligned()
@@ -534,9 +534,9 @@ def train_features(infiles, inshapes, im_names, train_test_splits,
     assert all([hasattr(comp_module,comparison) for comparison in comparisons])
     
     datas = {}
-	from joblib import Parallel, delayed
-	g = (delayed(train_features_single)(infiles, inshapes, im_names, tts, comp, flip_lr=flip_lr) for comp in comparisons for tts in train_test_splits)
-	R = Parallel(n_jobs=n_jobs)(g)
+    from joblib import Parallel, delayed
+    g = (delayed(train_features_single)(infiles, inshapes, im_names, tts, comp, flip_lr=flip_lr) for comp in comparisons for tts in train_test_splits)
+    R = Parallel(n_jobs=n_jobs,verbose=1)(g)
 
     ind = 0
     for comparison in comparisons:
