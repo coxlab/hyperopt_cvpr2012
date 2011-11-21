@@ -485,7 +485,7 @@ class TheanoExtractedFeatures(ExtractedFeatures):
             feature_shps.append(feature_shp)
         
         super(TheanoExtractedFeatures, self).__init__(X, feature_shps, batchsize, 
-                                                      slms, filenames, tlimit=tlimit
+                                                      slms, filenames, tlimit=tlimit,
                                                       file_out = file_out)
 
 

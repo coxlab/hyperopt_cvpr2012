@@ -364,7 +364,9 @@ def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
         outfh.close()
     return result
 
-
+import hashlib
+def random_id():
+    return hashlib.sha1(str(np.random.randint(10,size=(32,)))).hexdigest() 
 
 class PairFeatures(object):
     def __init__(self, *args, **kwargs):
@@ -394,6 +396,9 @@ class PairFeatures(object):
         Bind = np.searchsorted(X, Br)
         assert len(Aind) == len(Bind)
         pair_shp = (len(labels), n_features)
+
+        if filename is None:
+            filename = random_id() + '.dat'            
 
         if flip_lr:
             pair_shp = (4 * pair_shp[0], pair_shp[1])
@@ -493,11 +498,6 @@ def test_splits():
 def get_features(outfiles, configs, train_test_splits):
     import skdata.lfw
 
-    c_hash = get_config_string(configs)
-
-    if isinstance(configs, dict):
-        configs = [configs]
-
     dataset = skdata.lfw.Aligned()
 
     train_splits = [tts['train'] for tts in train_test_splits]
@@ -509,11 +509,15 @@ def get_features(outfiles, configs, train_test_splits):
     arrays, labels, im_names = get_relevant_images(dataset, splits = all_splits, dtype='float32')
 
     batchsize = 4
-
-    T = TheanoExtractedFeatures(arrays, batchsize, configs, outfiles, 
+    
+    Ts = []
+    for outfile, config in zip(outfiles,configs):
+        T = TheanoExtractedFeatures(arrays, batchsize, [config], [outfile], 
                                        tlimit=None, file_out = True)
+        Ts.append(T)
         
-    return T, im_names
+        
+    return Ts, im_names
     
 
 def train_features(infiles, inshapes, im_names, train_test_splits, 
@@ -528,9 +532,9 @@ def train_features(infiles, inshapes, im_names, train_test_splits,
     if not parallel:            
         R = [train_features_single(infiles, inshapes, im_names, tts, comparison, flip_lr=flip_lr) for comp in comparisons for tts in train_test_splits]
     else:
-        from joblib import Parellel, delayed
+        from joblib import Parallel, delayed
         g = (delayed(train_features_single)(infiles, inshapes, im_names, tts, comp, flip_lr=flip_lr) for comp in comparisons for tts in train_test_splits)
-        R = Parallel(g)
+        R = Parallel()(g)
 
     ind = 0
     for comparison in comparisons:
@@ -567,11 +571,14 @@ def get_arrays(filenames, inshapes):
                     shape=inshape) for filename,inshape in zip(filenames, inshapes)]
 
 
-def train_features_single(infiles, inshapes, im_names, comparison, tts, flip_lr=False)
+def train_features_single(infiles, inshapes, im_names, tts, comparison, flip_lr=False):
+
+    import skdata.lfw
+    dataset = skdata.lfw.Aligned()
 
     arrays = get_arrays(infiles, inshapes)
     comparison_obj = getattr(comp_module,comparison)
-    n_features = sum([comparison_obj.get_num_features(f_shp) for f_shp in in_shapes])
+    n_features = sum([comparison_obj.get_num_features(f_shp) for f_shp in inshapes])
     
     print('Split', tts)
     if tts.get('validate') is not None:
@@ -580,13 +587,13 @@ def train_features_single(infiles, inshapes, im_names, comparison, tts, flip_lr=
         test_split = tts['test']
         with PairFeatures(dataset, train_split, im_names,
                 n_features, arrays, comparison_obj,
-                          train_pairs_filename, flip_lr=flip_lr) as train_Xy:
+                          None, flip_lr=flip_lr) as train_Xy:
             with PairFeatures(dataset, validate_split,
                     im_names, n_features, arrays, comparison_obj,
-                              validate_pairs_filename) as validate_Xy:
+                              None) as validate_Xy:
                 with PairFeatures(dataset, test_split,
                     im_names, n_features, arrays, comparison_obj,
-                              test_pairs_filename) as test_Xy:
+                              None) as test_Xy:
                     train_Xy, validate_Xy, test_Xy, m, s, m1 = normalize(train_Xy,
                                                             validate_Xy, 
                                                             test_Xy)
@@ -600,10 +607,10 @@ def train_features_single(infiles, inshapes, im_names, comparison, tts, flip_lr=
         test_split = tts['test']
         with PairFeatures(dataset, train_split, im_names,
                 n_features, arrays, comparison_obj,
-                          train_pairs_filename, flip_lr=flip_lr) as train_Xy:
+                          None, flip_lr=flip_lr) as train_Xy:
             with PairFeatures(dataset, test_split,
                     im_names, n_features, arrays, comparison_obj,
-                              test_pairs_filename) as test_Xy:
+                              None) as test_Xy:
                 train_Xy, test_Xy, m, s, m1 = normalize(train_Xy, test_Xy)
                 model, earlystopper, result = train_classifier(train_Xy, test_Xy)
                 n_test_examples = len(test_Xy[0])
