@@ -131,13 +131,15 @@ def evaluate_classifier_normalize(model, test_Xy, train_mean, train_std, verbose
     def normalize(XX):
         return (XX - train_mean) / np.maximum(train_std, 1e-6)
     test_X = normalize(test_X)
-    return evaluate_classifier(model, test_X, test_y, batchsize=batchsize, verbose=verbose)
+    return evaluate_classifier(model, (test_X, test_y), batchsize=batchsize, verbose=verbose)
 
 
-def evaluate_classifier(model, test_X, test_y,
+def evaluate_classifier(model, test_Xy,
         batchsize=10,
         verbose=0):
 
+    test_X, test_y = test_Xy
+    
     if set(test_y) == set([0, 1]):
         test_y = test_y * 2 - 1
 

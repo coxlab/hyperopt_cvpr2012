@@ -353,7 +353,8 @@ def use_memmap(size):
 
 
 class ExtractedFeatures(object):
-    def __init__(self, X, feature_shps, batchsize, slms, filenames, tlimit=DEFAULT_TLIMIT):
+    def __init__(self, X, feature_shps, batchsize, slms, filenames, 
+                 tlimit=DEFAULT_TLIMIT, file_out = False):
         """
         X - 4-tensor of images
         feature_shp - 4-tensor of output feature shape (len matches X)
@@ -371,7 +372,7 @@ class ExtractedFeatures(object):
         for feature_shp, filename, slm in zip(feature_shps, filenames, slms):
             size = 4 * np.prod(feature_shp)
             print('Total size: %i bytes (%.2f GB)' % (size, size / float(1e9)))
-            memmap = use_memmap(size)
+            memmap = file_out or use_memmap(size)
             if memmap:
                 print('Creating memmap %s for features of shape %s' % (
                                                       filename, str(feature_shp)))
@@ -445,7 +446,7 @@ class ExtractedFeatures(object):
 
 class TheanoExtractedFeatures(ExtractedFeatures):
     def __init__(self, X, batchsize, configs, filenames, tlimit=DEFAULT_TLIMIT,
-                 use_theano=True):
+                 use_theano=True, file_out = False):
     
         slms = []
         feature_shps = []
@@ -484,7 +485,8 @@ class TheanoExtractedFeatures(ExtractedFeatures):
             feature_shps.append(feature_shp)
         
         super(TheanoExtractedFeatures, self).__init__(X, feature_shps, batchsize, 
-                                                      slms, filenames, tlimit=tlimit)
+                                                      slms, filenames, tlimit=tlimit
+                                                      file_out = file_out)
 
 
 

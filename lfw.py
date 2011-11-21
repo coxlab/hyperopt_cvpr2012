@@ -262,7 +262,6 @@ def get_test_performance(outfile, config, use_theano=True, flip_lr=False, compar
                            comparisons=comparisons)
 
 
-
 def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
                     flip_lr=False, tlimit=35, comparisons=DEFAULT_COMPARISONS):
     import skdata.lfw
@@ -461,7 +460,8 @@ class PairFeatures(object):
             self.filename = ''
 
         self.labels = np.array(feature_labels)
-
+        
+    
     def __enter__(self):
         self.work(*self.args, **self.kwargs)
         return (self.features, self.labels)
@@ -470,6 +470,159 @@ class PairFeatures(object):
         if self.filename:
             os.remove(self.filename)
 
+
+def test_splits():
+    T = ['fold_' + str(i) for i in range(10)]
+    splits = []
+    for i in range(10):
+        inds = range(10)
+        inds.remove(i)
+        v_ind = (i+1) % 10
+        inds.remove(v_ind)
+        test = T[i]
+        validate = T[v_ind]
+        train = [T[ind] for ind in inds]
+
+        splits.append({'train': train,
+                       'validate': validate,
+                       'test': test})
+
+    return splits
+    
+
+def get_features(outfiles, configs, train_test_splits):
+    import skdata.lfw
+
+    c_hash = get_config_string(configs)
+
+    if isinstance(configs, dict):
+        configs = [configs]
+
+    dataset = skdata.lfw.Aligned()
+
+    train_splits = [tts['train'] for tts in train_test_splits]
+    validate_splits = [tts.get('validate',[]) for tts in train_test_splits]
+    test_splits = [tts['test'] for tts in train_test_splits]
+
+    all_splits = test_splits + validate_splits + train_splits
+
+    arrays, labels, im_names = get_relevant_images(dataset, splits = all_splits, dtype='float32')
+
+    batchsize = 4
+
+    T = TheanoExtractedFeatures(arrays, batchsize, configs, outfiles, 
+                                       tlimit=None, file_out = True)
+        
+    return T, im_names
+    
+
+def train_features(infiles, inshapes, im_names, train_test_splits, 
+                   flip_lr=False, 
+                   comparisons=DEFAULT_COMPARISONS,
+                   parallel=False, 
+                   outfile=None):
+                       
+    assert all([hasattr(comp_module,comparison) for comparison in comparisons])
+    
+    datas = {}
+    if not parallel:            
+        R = [train_features_single(infiles, inshapes, im_names, tts, comparison, flip_lr=flip_lr) for comp in comparisons for tts in train_test_splits]
+    else:
+        from joblib import Parellel, delayed
+        g = (delayed(train_features_single)(infiles, inshapes, im_names, tts, comp, flip_lr=flip_lr) for comp in comparisons for tts in train_test_splits)
+        R = Parallel(g)
+
+    ind = 0
+    for comparison in comparisons:
+        perf = []
+        datas[comparison] = []
+        for tts in train_test_splits:
+            result = R[ind]
+            result['split'] = tts
+            perf.append(result['loss'])
+            datas[comparison].append(result)
+            ind += 1
+        performance_comp[comparison] = float(np.array(perf).mean())   
+        
+    performance = float(np.array(performance_comp.values()).min())
+
+    Result = dict(
+            loss=performance,
+            loss_variance=performance * (1 - performance) / n_test_examples,
+            performances=performance_comp,
+            data=datas,
+            status='ok')
+
+    if outfile is not None:
+        outfh = open(outfile,'w')
+        cPickle.dump(Result, outfh)
+        outfh.close()
+    return Result
+
+
+def get_arrays(filenames, inshapes):
+    return [np.memmap(filename,
+                    dtype='float32',
+                    mode='r',
+                    shape=inshape) for filename,inshape in zip(filenames, inshapes)]
+
+
+def train_features_single(infiles, inshapes, im_names, comparison, tts, flip_lr=False)
+
+    arrays = get_arrays(infiles, inshapes)
+    comparison_obj = getattr(comp_module,comparison)
+    n_features = sum([comparison_obj.get_num_features(f_shp) for f_shp in in_shapes])
+    
+    print('Split', tts)
+    if tts.get('validate') is not None:
+        train_split = tts['train']
+        validate_split = tts['validate']
+        test_split = tts['test']
+        with PairFeatures(dataset, train_split, im_names,
+                n_features, arrays, comparison_obj,
+                          train_pairs_filename, flip_lr=flip_lr) as train_Xy:
+            with PairFeatures(dataset, validate_split,
+                    im_names, n_features, arrays, comparison_obj,
+                              validate_pairs_filename) as validate_Xy:
+                with PairFeatures(dataset, test_split,
+                    im_names, n_features, arrays, comparison_obj,
+                              test_pairs_filename) as test_Xy:
+                    train_Xy, validate_Xy, test_Xy, m, s, m1 = normalize(train_Xy,
+                                                            validate_Xy, 
+                                                            test_Xy)
+                    model, earlystopper, data = train_classifier(train_Xy, validate_Xy)
+                    print('earlystopper', earlystopper.best_y)
+                    result = evaluate_classifier(model, test_Xy)
+                    print ('Split',tts, 'comparison', comparison, 'loss is', result['loss'])
+                    n_test_examples = len(test_Xy[0])
+    else:
+        train_split = tts['train']
+        test_split = tts['test']
+        with PairFeatures(dataset, train_split, im_names,
+                n_features, arrays, comparison_obj,
+                          train_pairs_filename, flip_lr=flip_lr) as train_Xy:
+            with PairFeatures(dataset, test_split,
+                    im_names, n_features, arrays, comparison_obj,
+                              test_pairs_filename) as test_Xy:
+                train_Xy, test_Xy, m, s, m1 = normalize(train_Xy, test_Xy)
+                model, earlystopper, result = train_classifier(train_Xy, test_Xy)
+                n_test_examples = len(test_Xy[0])
+
+    return result, n_test_examples
+
+
+def normalize(*feats_Xy):
+    feats, labels = zip(*feats_Xy)
+    train_f = feats[0]
+    m = train_f.mean(0)
+    s = max(train_f.std(), 1e-6)
+    feats = [(f - m) / s for f in feats]
+    train_f = feats[0]
+    m1 = max(np.sqrt((train_f**2).sum(1)).mean(), 1e-6)
+    feats = [f / m1 for f in feats]
+    feats_Xy = tuple(zip(feats,labels))
+    return feats_Xy + (m, s, m1)
+    
 
 ######utils
 
