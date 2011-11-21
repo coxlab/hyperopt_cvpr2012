@@ -30,7 +30,9 @@ import comparisons as comp_module
 from theano_slm import (TheanoExtractedFeatures,
                         use_memmap)
 from classifier import (train_classifier_normalize,
-                        evaluate_classifier_normalize)
+                        evaluate_classifier_normalize,
+                        train_classifier,
+                        evaluate_classifier)
 
 
 DEFAULT_COMPARISONS = ['mult', 'sqrtabsdiff']
@@ -534,7 +536,7 @@ def train_features(infiles, inshapes, im_names, train_test_splits,
     else:
         from joblib import Parallel, delayed
         g = (delayed(train_features_single)(infiles, inshapes, im_names, tts, comp, flip_lr=flip_lr) for comp in comparisons for tts in train_test_splits)
-        R = Parallel()(g)
+        R = Parallel(n_jobs=-1)(g)
 
     ind = 0
     for comparison in comparisons:
@@ -621,11 +623,11 @@ def train_features_single(infiles, inshapes, im_names, tts, comparison, flip_lr=
 def normalize(*feats_Xy):
     feats, labels = zip(*feats_Xy)
     train_f = feats[0]
-    m = train_f.mean(0)
-    s = max(train_f.std(), 1e-6)
+    m = train_f.mean(axis=0)
+    s = np.maximum(train_f.std(axis=0), 1e-6)
     feats = [(f - m) / s for f in feats]
     train_f = feats[0]
-    m1 = max(np.sqrt((train_f**2).sum(1)).mean(), 1e-6)
+    m1 = np.maximum(np.sqrt((train_f**2).sum(axis=1)).mean(), 1e-6)
     feats = [f / m1 for f in feats]
     feats_Xy = tuple(zip(feats,labels))
     return feats_Xy + (m, s, m1)
