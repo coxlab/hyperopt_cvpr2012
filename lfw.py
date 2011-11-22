@@ -144,9 +144,9 @@ class LFWBanditTopHetero(LFWBandit):
         return desc
 
     @classmethod
-    def evaluate(cls, config, ctrl, use_theano=True, comparisons = DEFAULT_COMPARISONS):
+    def evaluate(cls, config, ctrl, use_theano=True):
         config = {'desc':cls.interpret_mod_config(config)}
-        result = get_performance(None, config, use_theano=use_theano, comparisons=comparisons)
+        result = get_performance(None, config, use_theano=use_theano, comparisons=['mult'])
         return result
 
 
