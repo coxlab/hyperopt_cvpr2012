@@ -450,3 +450,48 @@ for t in Top5c:
                                                            'delta':uniform(0,.3)})}
     t[3][0][0] = 'fbcorr_h'
 config_h_Top5c = {'desc': choice(Top5c), 'comparison' : comparison}
+
+
+
+lpool_mod = {'kwargs': {'order' : {'generate':('fixedvalues',{'values':choice([[uniform(1,10)],
+                                                                               [uniform(1,10),
+                                                                                uniform(1,10)],
+                                                                               [uniform(1,10),
+                                                                                uniform(1,10),
+                                                                                uniform(1,10)]
+                                                                               ])
+                                                             })}
+                        }
+            }
+
+fbcorr_mod = {'kwargs': {'min_out' : {'generate' : ('random:uniform',
+                                                           {'rseed':42,
+                                                           'mean':uniform(-.5,.1),
+                                                           'delta':uniform(0,.2)})
+                                     }
+                        }
+              }
+
+
+lnorm_mod = {'kwargs':{'stretch' : lognormal(0, 1),
+                       'threshold' : lognormal(0, 1)
+                      }
+            }
+
+config_mod = {'top_model': choice(range(10)),
+     'mods' : [[('lnorm',lnorm_mod)],
+               [('fbcorr_h', fbcorr_mod),
+                ('lpool_h', lpool_mod),
+                ('lnorm',lnorm_mod)],
+               [('fbcorr_h', fbcorr_mod),
+                ('lpool_h', lpool_mod),
+                ('lnorm',lnorm_mod)],
+               [('fbcorr_h', fbcorr_mod),
+                ('lpool_h', lpool_mod),
+                ('lnorm',lnorm_mod)]
+               ]
+
+    }
+
+
+

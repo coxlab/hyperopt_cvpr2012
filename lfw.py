@@ -101,6 +101,55 @@ class LFWBanditSGE(LFWBandit):
         return cPickle.loads(open(outfile).read())
 
 
+def do_mod_details(params,mod_params):
+    assert isinstance(params,dict) and isinstance(mod_params,dict)
+    for k in mod_params:
+        if k in params:
+            if isinstance(params[k],dict):
+                do_mod_details(params[k],mod_params[k])
+            else:
+                params[k] = mod_params[k]
+        else:
+            params[k] = mod_params[k]
+
+
+def do_mods(spec, mods):
+    for spec_l, mod_l in zip(spec, mods):
+        print spec_l, mod_l
+        for (ind,(opname, opparams)) in enumerate(mod_l):
+            assert opname in [spec_l[ind][0], spec_l[ind][0] + '_h']
+            do_mod_details(spec_l[ind][1], opparams)
+            spec_l[ind][0] = opname
+
+
+import pymongo
+class LFWBanditTopHetero(LFWBandit):
+    source_string = cvpr_params.string(cvpr_params.config_mod)
+
+    @classmethod
+    def interpret_mod_config(cls, config):
+        if not hasattr(cls,'conn'):
+            cls.conn = pymongo.Connection()
+            cls.db = cls.conn['hyperopt']
+            cls.jobs = cls.db['jobs']
+            cls.exp_key = 'lfw.LFWBandit/hyperopt.theano_bandit_algos.AdaptiveParzenGM'
+
+        curs = cls.jobs.find({'exp_key':cls.exp_key, 'result.loss':{'$exists':True}}).sort('result.loss')
+
+        top_val = config['top_model']
+        desc = curs[top_val]['spec']['desc']
+
+        do_mods(desc, config['mods'])
+
+        return desc
+
+    @classmethod
+    def evaluate(cls, config, ctrl, use_theano=True, comparisons = DEFAULT_COMPARISONS):
+        config = {'desc':cls.interpret_mod_config(config)}
+        result = get_performance(None, config, use_theano=use_theano, comparisons=comparisons)
+        return result
+
+
 class LFWBanditEZSearch(gb.GensonBandit):
     """
     This Bandit has the same evaluate function as LFWBandit,
@@ -368,7 +417,7 @@ def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
 
 import hashlib
 def random_id():
-    return hashlib.sha1(str(np.random.randint(10,size=(32,)))).hexdigest() 
+    return hashlib.sha1(str(np.random.randint(10,size=(32,)))).hexdigest()
 
 class PairFeatures(object):
     def __init__(self, *args, **kwargs):
@@ -399,7 +448,7 @@ class PairFeatures(object):
         assert len(Aind) == len(Bind)
         pair_shp = (len(labels), n_features)
 
-        
+
         if flip_lr:
             pair_shp = (4 * pair_shp[0], pair_shp[1])
 
@@ -465,8 +514,8 @@ class PairFeatures(object):
             self.filename = ''
 
         self.labels = np.array(feature_labels)
-        
-    
+
+
     def __enter__(self):
         self.work(*self.args, **self.kwargs)
         return (self.features, self.labels)
@@ -493,7 +542,7 @@ def test_splits():
                        'test': test})
 
     return splits
-    
+
 
 def get_relevant_data(train_test_splits):
     import skdata.lfw
@@ -514,26 +563,26 @@ def get_features(outfiles, configs, train_test_splits):
     arrays, labels, im_names = get_relevant_data(train_test_splits)
 
     batchsize = 4
-    
+
     Ts = []
     for outfile, config in zip(outfiles,configs):
-        T = TheanoExtractedFeatures(arrays, batchsize, [config], [outfile], 
+        T = TheanoExtractedFeatures(arrays, batchsize, [config], [outfile],
                                        tlimit=None, file_out = True)
         Ts.append(T)
-        
-        
-    return Ts, im_names
-    
 
-def train_features(infiles, inshapes, im_names, train_test_splits, 
-                   flip_lr=False, 
+
+    return Ts, im_names
+
+
+def train_features(infiles, inshapes, im_names, train_test_splits,
+                   flip_lr=False,
                    comparisons=DEFAULT_COMPARISONS,
-                   n_jobs=False, 
+                   n_jobs=False,
                    outfile=None,
                    obs_norm=True):
-                       
+
     assert all([hasattr(comp_module,comparison) for comparison in comparisons])
-    
+
     datas = {}
     from joblib import Parallel, delayed
     g = (delayed(train_features_single)(infiles, inshapes, im_names, tts, comp, flip_lr=flip_lr, obs_norm=obs_norm) for comp in comparisons for tts in train_test_splits)
@@ -550,8 +599,8 @@ def train_features(infiles, inshapes, im_names, train_test_splits,
             perf.append(result['loss'])
             datas[comparison].append(result)
             ind += 1
-        performance_comp[comparison] = float(np.array(perf).mean())   
-        
+        performance_comp[comparison] = float(np.array(perf).mean())
+
     performance = float(np.array(performance_comp.values()).min())
 
     Result = dict(
@@ -583,7 +632,7 @@ def train_features_single(infiles, inshapes, im_names, tts, comparison, flip_lr=
     arrays = get_arrays(infiles, inshapes)
     comparison_obj = getattr(comp_module,comparison)
     n_features = sum([comparison_obj.get_num_features(f_shp) for f_shp in inshapes])
-    
+
     print('Split', tts)
     if tts.get('validate') is not None:
         train_split = tts['train']
@@ -599,7 +648,7 @@ def train_features_single(infiles, inshapes, im_names, tts, comparison, flip_lr=
                     im_names, n_features, arrays, comparison_obj,
                               None) as test_Xy:
                     train_Xy, validate_Xy, test_Xy, m, s, m1 = normalize((train_Xy,
-                                                            validate_Xy, 
+                                                            validate_Xy,
                                                             test_Xy),
                                                             obs_norm=obs_norm)
                     model, earlystopper, data = train_classifier(train_Xy, validate_Xy)
@@ -635,7 +684,7 @@ def normalize(feats_Xy, obs_norm=True):
         feats = [f / m1 for f in feats]
     feats_Xy = tuple(zip(feats,labels))
     return feats_Xy + (m, s, m1)
-    
+
 
 ######utils
 
