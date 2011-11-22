@@ -529,16 +529,18 @@ def train_features(infiles, inshapes, im_names, train_test_splits,
                    flip_lr=False, 
                    comparisons=DEFAULT_COMPARISONS,
                    n_jobs=False, 
-                   outfile=None):
+                   outfile=None,
+                   obs_norm=True):
                        
     assert all([hasattr(comp_module,comparison) for comparison in comparisons])
     
     datas = {}
     from joblib import Parallel, delayed
-    g = (delayed(train_features_single)(infiles, inshapes, im_names, tts, comp, flip_lr=flip_lr) for comp in comparisons for tts in train_test_splits)
+    g = (delayed(train_features_single)(infiles, inshapes, im_names, tts, comp, flip_lr=flip_lr, obs_norm=obs_norm) for comp in comparisons for tts in train_test_splits)
     R = Parallel(n_jobs=n_jobs,verbose=1)(g)
 
     ind = 0
+    performance_comp = {}
     for comparison in comparisons:
         perf = []
         datas[comparison] = []
@@ -573,7 +575,7 @@ def get_arrays(filenames, inshapes):
                     shape=inshape) for filename,inshape in zip(filenames, inshapes)]
 
 
-def train_features_single(infiles, inshapes, im_names, tts, comparison, flip_lr=False):
+def train_features_single(infiles, inshapes, im_names, tts, comparison, flip_lr=False, obs_norm=True):
 
     import skdata.lfw
     dataset = skdata.lfw.Aligned()
@@ -596,9 +598,10 @@ def train_features_single(infiles, inshapes, im_names, tts, comparison, flip_lr=
                 with PairFeatures(dataset, test_split,
                     im_names, n_features, arrays, comparison_obj,
                               None) as test_Xy:
-                    train_Xy, validate_Xy, test_Xy, m, s, m1 = normalize(train_Xy,
+                    train_Xy, validate_Xy, test_Xy, m, s, m1 = normalize((train_Xy,
                                                             validate_Xy, 
-                                                            test_Xy)
+                                                            test_Xy),
+                                                            obs_norm=obs_norm)
                     model, earlystopper, data = train_classifier(train_Xy, validate_Xy)
                     print('earlystopper', earlystopper.best_y)
                     result = evaluate_classifier(model, test_Xy)
@@ -613,14 +616,14 @@ def train_features_single(infiles, inshapes, im_names, tts, comparison, flip_lr=
             with PairFeatures(dataset, test_split,
                     im_names, n_features, arrays, comparison_obj,
                               None) as test_Xy:
-                train_Xy, test_Xy, m, s, m1 = normalize(train_Xy, test_Xy)
+                train_Xy, test_Xy, m, s, m1 = normalize((train_Xy, test_Xy), obs_norm=obs_norm)
                 model, earlystopper, result = train_classifier(train_Xy, test_Xy)
                 n_test_examples = len(test_Xy[0])
 
     return result, n_test_examples
 
 
-def normalize(*feats_Xy):
+def normalize(feats_Xy, obs_norm=True):
     feats, labels = zip(*feats_Xy)
     train_f = feats[0]
     m = train_f.mean(axis=0)
@@ -628,7 +631,8 @@ def normalize(*feats_Xy):
     feats = [(f - m) / s for f in feats]
     train_f = feats[0]
     m1 = np.maximum(np.sqrt((train_f**2).sum(axis=1)).mean(), 1e-6)
-    feats = [f / m1 for f in feats]
+    if obs_norm:
+        feats = [f / m1 for f in feats]
     feats_Xy = tuple(zip(feats,labels))
     return feats_Xy + (m, s, m1)
     
