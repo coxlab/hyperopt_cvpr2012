@@ -238,7 +238,7 @@ class TheanoSLM(object):
                 raise NotImplementedError('div_method', div_method)
         else:
             raise NotImplementedError('outker_shape != inker_shape',outker_shape, inker_shape)
-        if stretch != 1:
+        if (hasattr(stetch, '__iter__') and (stretch != 1).any()) or stretch != 1:
             arr_num = arr_num * stretch
             arr_div = arr_div * stretch
         arr_div = tensor.switch(arr_div < (threshold + EPSILON), 1.0, arr_div)
@@ -314,6 +314,10 @@ class TheanoSLM(object):
         max_out = kwargs.get('max_out', fbcorr_.DEFAULT_MAX_OUT)
         kwargs['max_out'] = get_into_shape(max_out)
         kwargs['min_out'] = get_into_shape(min_out)
+        exp1 = kwargs.get('exp1', 1)
+        exp2 = kwargs.get('exp2', 1)
+        kwargs['exp1'] = get_into_shape(exp1)
+        kwargs['exp2'] = get_into_shape(exp2)
         return self.init_fbcorr2(x, x_shp, **kwargs)
 
     def init_fbcorr2(self, x, x_shp, n_filters,
@@ -339,11 +343,12 @@ class TheanoSLM(object):
         kerns2 = self.SLMP._get_filterbank(fake_x,
                 dict(n_filters=n_filters,
                     filter_shape=filter_shape,
-                    generate=generate1))
+                    generate=generate2))
         kerns2 = kerns2.transpose(0, 3, 1, 2).copy()[:,:,::-1,::-1]
-        if exp1 != 1:
+
+        if (hasattr(exp1, '__iter__') and (exp1 != 1).any()) or exp1 != 1:
             x1 = x ** exp1
-        if exp2 != 1:
+        if (hasattr(exp2, '__iter__') and (exp2 != 1).any()) or exp2 != 1:
             x2 = x ** exp2
         x1 = conv.conv2d(
                 x1,
@@ -351,17 +356,16 @@ class TheanoSLM(object):
                 image_shape=x_shp,
                 filter_shape=kerns1.shape,
                 border_mode=mode)
-
         x2 = conv.conv2d(
                 x2,
                 kerns2,
                 image_shape=x_shp,
                 filter_shape=kerns2.shape,
                 border_mode=mode)
-        if exp1 != 1:
-            x1 = x1 ** (1./exp1)
-        if exp2 != 1:
-            x2 = x2 ** (1./exp2)
+        if (hasattr(exp1, '__iter__') and (exp1 != 1).any()) or exp1 != 1:
+            x1 = tensor.maximum(x1, 0) ** (1.0 / exp1)
+        if (hasattr(exp2, '__iter__') and (exp2 != 1).any()) or exp2 != 1:
+            x2 = tensor.maximum(x2, 0) ** (1.0 / exp2)
         x = x1/x2
 
         if mode == 'valid':
