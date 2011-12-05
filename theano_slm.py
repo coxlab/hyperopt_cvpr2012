@@ -308,7 +308,97 @@ class TheanoSLM(object):
         else:
             return rval
 
-      
+
+    def init_fbcorr2_h(self, x, x_shp, **kwargs):
+        min_out = kwargs.get('min_out', fbcorr_.DEFAULT_MIN_OUT)
+        max_out = kwargs.get('max_out', fbcorr_.DEFAULT_MAX_OUT)
+        kwargs['max_out'] = get_into_shape(max_out)
+        kwargs['min_out'] = get_into_shape(min_out)
+        return self.init_fbcorr2(x, x_shp, **kwargs)
+
+    def init_fbcorr2(self, x, x_shp, n_filters,
+            filter_shape,
+            min_out=fbcorr_.DEFAULT_MIN_OUT,
+            max_out=fbcorr_.DEFAULT_MAX_OUT,
+            mode=fbcorr_.DEFAULT_MODE,
+            exp1 = 1,
+            exp2 = 1,
+            generate1=None,
+            generate2=None
+            ):
+        # Reference implementation:
+        # ../pythor3/pythor3/operation/fbcorr_/plugins/scipy_naive/scipy_naive.py
+
+        fake_x = np.empty((x_shp[2], x_shp[3], x_shp[1]),
+                x.dtype)
+        kerns1 = self.SLMP._get_filterbank(fake_x,
+                dict(n_filters=n_filters,
+                    filter_shape=filter_shape,
+                    generate=generate1))
+        kerns1 = kerns1.transpose(0, 3, 1, 2).copy()[:,:,::-1,::-1]
+        kerns2 = self.SLMP._get_filterbank(fake_x,
+                dict(n_filters=n_filters,
+                    filter_shape=filter_shape,
+                    generate=generate1))
+        kerns2 = kerns2.transpose(0, 3, 1, 2).copy()[:,:,::-1,::-1]
+        if exp1 != 1:
+            x1 = x ** exp1
+        if exp2 != 1:
+            x2 = x ** exp2
+        x1 = conv.conv2d(
+                x1,
+                kerns1,
+                image_shape=x_shp,
+                filter_shape=kerns1.shape,
+                border_mode=mode)
+
+        x2 = conv.conv2d(
+                x2,
+                kerns2,
+                image_shape=x_shp,
+                filter_shape=kerns2.shape,
+                border_mode=mode)
+        if exp1 != 1:
+            x1 = x1 ** (1./exp1)
+        if exp2 != 1:
+            x2 = x2 ** (1./exp2)
+        x = x1/x2
+
+        if mode == 'valid':
+            x_shp = (x_shp[0], n_filters,
+                    x_shp[2] - filter_shape[0] + 1,
+                    x_shp[3] - filter_shape[1] + 1)
+        elif mode == 'full':
+            x_shp = (x_shp[0], n_filters,
+                    x_shp[2] + filter_shape[0] - 1,
+                    x_shp[3] + filter_shape[1] - 1)
+        else:
+            raise NotImplementedError('fbcorr mode', mode)
+
+        if min_out is None and max_out is None:
+            return x, x_shp
+        elif min_out is None:
+            return tensor.minimum(x, max_out), x_shp
+        elif max_out is None:
+            return tensor.maximum(x, min_out), x_shp
+        else:
+            return tensor.clip(x, min_out, max_out), x_shp
+
+    def init_rescale(self, x, x_shp,
+            stride=1,
+            mode='valid'):
+
+        if stride > 1:
+            r = x[:, :, ::stride, ::stride]
+            # intdiv is tricky... so just use numpy
+            r_shp = np.empty(x_shp)[:, :, ::stride, ::stride].shape
+        else:
+            r = x
+            r_shp = x_shp
+
+        return r, r_shp
+
+
 def train_multiclassifier(config, train_Xy, test_Xy, n_features, n_classes):
     print 'training classifier'
     train_X, train_y = train_Xy
@@ -321,10 +411,10 @@ def train_multiclassifier(config, train_Xy, test_Xy, n_features, n_classes):
                 n_classes=n_classes,
                 l2_regularization=0,
                 sgd_step_size0=1e-3)
-    
-    return train_classifier_core(model, train_X, train_y, test_X, test_y)   
-    
-    
+
+    return train_classifier_core(model, train_X, train_y, test_X, test_y)
+
+
 def train_classifier_core(model, train_X, train_y, test_X, test_y):
     train_mean = train_X.mean(axis=0)
     train_std = train_X.std(axis=0)
@@ -353,7 +443,7 @@ def use_memmap(size):
 
 
 class ExtractedFeatures(object):
-    def __init__(self, X, feature_shps, batchsize, slms, filenames, 
+    def __init__(self, X, feature_shps, batchsize, slms, filenames,
                  tlimit=DEFAULT_TLIMIT, file_out = False):
         """
         X - 4-tensor of images
@@ -364,11 +454,11 @@ class ExtractedFeatures(object):
 
         returns - read-only memmap of features
         """
-        
+
         self.filenames = []
         self.features = []
         self.feature_shps = feature_shps
-        
+
         for feature_shp, filename, slm in zip(feature_shps, filenames, slms):
             size = 4 * np.prod(feature_shp)
             print('Total size: %i bytes (%.2f GB)' % (size, size / float(1e9)))
@@ -383,10 +473,10 @@ class ExtractedFeatures(object):
             else:
                 print('Using memory for features of shape %s' % str(feature_shp))
                 features_fp = np.empty(feature_shp,dtype='float32')
-    
+
             if TEST:
                 print('TESTING')
-    
+
             i = 0
             t0 = time.time()
             while not TEST or i < 10:
@@ -409,7 +499,7 @@ class ExtractedFeatures(object):
                     print('write: ', time.time() - t2)
                 if done:
                     break
-    
+
                 i += batchsize
                 if (i // batchsize) % 50 == 0:
                     t_cur = time.time() - t0
@@ -447,7 +537,7 @@ class ExtractedFeatures(object):
 class TheanoExtractedFeatures(ExtractedFeatures):
     def __init__(self, X, batchsize, configs, filenames, tlimit=DEFAULT_TLIMIT,
                  use_theano=True, file_out = False):
-    
+
         slms = []
         feature_shps = []
         for config in configs:
@@ -464,7 +554,7 @@ class TheanoExtractedFeatures(ExtractedFeatures):
                         description=desc)
             else:
                 raise NotImplementedError()
-        
+
             if use_theano:
                 slm = t_slm
                 # -- pre-compile the function to not mess up timing
@@ -479,12 +569,12 @@ class TheanoExtractedFeatures(ExtractedFeatures):
                                                   'lnorm' : cthor,
                                                   'lpool' : cthor,
                                              }})
-                
+
             slms.append(slm)
             feature_shp = (X.shape[0],) + t_slm.pythor_out_shape
             feature_shps.append(feature_shp)
-        
-        super(TheanoExtractedFeatures, self).__init__(X, feature_shps, batchsize, 
+
+        super(TheanoExtractedFeatures, self).__init__(X, feature_shps, batchsize,
                                                       slms, filenames, tlimit=tlimit,
                                                       file_out = file_out)
 
@@ -498,7 +588,7 @@ class TooLongException(Exception):
     """model takes too long to evaluate"""
     def msg(tot, cutoff):
         return 'Would take too long to execute model (%f mins, but cutoff is %s mins)' % (tot, cutoff)
-       
+
 def dict_add(a, b):
     rval = dict(a)
     rval.update(b)
