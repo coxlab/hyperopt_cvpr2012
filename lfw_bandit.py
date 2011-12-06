@@ -566,12 +566,13 @@ def main_view1_classify():
     print 'best time', earlystopper.best_time
 
 def main_view2_classify():
-    # usage: comparison split outprefix in_filename0 in_filename1 ...
+    # usage: comparison split outprefix trace_normalize in_filename0 in_filename1 ...
     comparisons = [getattr(comp_module, comp)
             for comp in sys.argv[2].split(',')]
     view2_split = int(sys.argv[3])
     out_prefix = sys.argv[4]
-    in_filenames = sys.argv[5:]
+    trace_normalize = int(sys.argv[5])
+    in_filenames = sys.argv[6:]
 
     dataset = skdata.lfw.Aligned()
 
@@ -641,9 +642,10 @@ def main_view2_classify():
                 X -= train_mean  # a row vector
                 X /= train_std   # a row vector
             # -- "trace normalization" for blending features of different sizes
-            train_l2 = np.mean(np.sqrt((train_X ** 2).sum(axis=1)))
-            for X in [train_X, test_X, valid_X]:
-                X /= train_l2
+            if trace_normalize:
+                train_l2 = np.mean(np.sqrt((train_X ** 2).sum(axis=1)))
+                for X in [train_X, test_X, valid_X]:
+                    X /= train_l2
 
             # -- do not shuffle the training set for better SGD
             #    because it is in a memmap, too slow, not worth it
