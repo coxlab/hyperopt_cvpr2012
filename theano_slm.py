@@ -341,32 +341,14 @@ def slm_from_config(config, X_shape, batchsize, use_theano=True):
                                           'lnorm' : cthor,
                                           'lpool' : cthor,
                                      }})
-       
+
     return slm
-
-
-class InvalidDescription(Exception):
-    """Model description was invalid"""
 
 
 class TooLongException(Exception):
     """model takes too long to evaluate"""
     def msg(tot, cutoff):
         return 'Would take too long to execute model (%f mins, but cutoff is %s mins)' % (tot, cutoff)
-
-def dict_add(a, b):
-    rval = dict(a)
-    rval.update(b)
-    return rval
-
-
-def get_into_shape(x):
-    if hasattr(x,'__iter__'):
-        x = np.array(x)
-        assert x.ndim == 1
-        x = x[np.newaxis, :, np.newaxis, np.newaxis]
-        x = x.astype(np.float32)
-    return x
 
 
 def get_pythor_safe_description(description):
