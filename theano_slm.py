@@ -540,48 +540,176 @@ class ExtractedFeatures(object):
 
 class TheanoExtractedFeatures(ExtractedFeatures):
     def __init__(self, X, batchsize, configs, filenames, tlimit=DEFAULT_TLIMIT,
-                 use_theano=True, file_out = False):
+                 use_theano=True):
+        slms = [slm_from_config(config, X.shape, batchsize) for config in configs]
+        feature_shps = [(X.shape[0],) + slm.pythor_out_shape for slm in slms]
+        super(TheanoExtractedFeatures, self).__init__(X, feature_shps,
+                batchsize,
+                slms,
+                filenames,
+                tlimit=tlimit)
 
-        slms = []
-        feature_shps = []
-        for config in configs:
-            config = son_to_py(config)
-            desc = copy.deepcopy(config['desc'])
-            interpret_model(desc)
-            if X.ndim == 3:
-                t_slm = TheanoSLM(
-                        in_shape=(batchsize,) + X.shape[1:] + (1,),
-                        description=desc)
-            elif X.ndim == 4:
-                t_slm = TheanoSLM(
-                        in_shape=(batchsize,) + X.shape[1:],
-                        description=desc)
+
+class FeatureExtractor(object):
+    def __init__(self, X, slm,
+            tlimit=float('inf'),
+            batchsize=4,
+            filename='FeatureExtractor.npy',
+            TEST=False):
+        """
+        X - 4-tensor of images
+        feature_shp - 4-tensor of output feature shape (len matches X)
+        batchsize - number of features to extract in parallel
+        slm - feature-extraction module (with .process_batch() fn)
+        filename - store features to memmap here
+
+        returns - read-only memmap of features
+        """
+        self.filename = filename
+        self.batchsize = batchsize
+        self.tlimit = tlimit
+        self.X = X
+        self.slm = slm
+        self.verbose = False
+        self.n_to_extract = len(X)
+        if TEST:
+            print('FeatureExtractor running in TESTING mode')
+            self.verbose = True
+            self.n_to_extract = 10 * batchsize
+        assert self.n_to_extract <= len(X)
+
+        # -- convenience
+        self.feature_shp = (self.n_to_extract,) + self.slm.pythor_out_shape
+
+    def __enter__(self):
+        if self.filename:
+            self.features = self.compute_features(use_memmap=True)
+        else:
+            self.features = self.compute_features(use_memmap=False)
+        return self.features
+
+    def __exit__(self, *args):
+        if self.filename:
+            os.remove(self.filename)
+        del self.features
+
+    def extract_to_memmap(self):
+        """
+        Allocate a memmap, fill it with extracted features, return r/o view.
+        """
+        filename = self.filename
+        feature_shp = self.feature_shp
+        print('Creating memmap %s for features of shape %s' % (
+                                              filename,
+                                              str(feature_shp)))
+        features_fp = np.memmap(filename,
+            dtype='float32',
+            mode='w+',
+            shape=feature_shp)
+        info = open(filename+'.info', 'w')
+        cPickle.dump(('float32', feature_shp), info)
+        del info
+
+        self.extract_to_storage(features_fp)
+
+        # -- docs here:
+        #    http://docs.scipy.org/doc/numpy/reference/generated/numpy.memmap.html
+        #    say that deletion is the way to flush changes !?
+        del features_fp
+        rval = np.memmap(self.filename,
+            dtype='float32',
+            mode='r',
+            shape=feature_shp)
+        return rval
+
+    def extract_to_storage(self, arr):
+        """
+        Fill arr with the first len(arr) features of self.X.
+        """
+        assert len(arr) <= len(self.X)
+        batchsize = self.batchsize
+        tlimit = self.tlimit
+        print('Total size: %i bytes (%.2f GB)' % (
+            arr.size * arr.dtype.itemsize,
+            arr.size * arr.dtype.itemsize / float(1e9)))
+        i = 0
+        t0 = time.time()
+        while True:
+            if i + batchsize >= len(arr):
+                assert i < len(arr)
+                xi = np.asarray(self.X[-batchsize:])
+                done = True
             else:
-                raise NotImplementedError()
+                xi = np.asarray(self.X[i:i+batchsize])
+                done = False
+            t1 = time.time()
+            feature_batch = self.slm.process_batch(xi)
+            if self.verbose:
+                print('compute: ', time.time() - t1)
+            t2 = time.time()
+            delta = max(0, i + batchsize - len(arr))
+            assert np.all(np.isfinite(feature_batch))
+            arr[i:i + batchsize - delta] = feature_batch[delta:]
+            if self.verbose:
+                print('write: ', time.time() - t2)
+            if done:
+                break
 
-            if use_theano:
-                slm = t_slm
-                # -- pre-compile the function to not mess up timing
-                slm.get_theano_fn()
-            else:
-                cthor_sse = {'plugin':'cthor', 'plugin_kwargs':{'variant':'sse'}}
-                cthor = {'plugin':'cthor', 'plugin_kwargs':{}}
-                slm = SequentialLayeredModel(X.shape[1:], desc,
-                                             plugin='passthrough',
-                                             plugin_kwargs={'plugin_mapping': {
-                                                 'fbcorr': cthor,
-                                                  'lnorm' : cthor,
-                                                  'lpool' : cthor,
-                                             }})
+            i += batchsize
+            if (i // batchsize) % 50 == 0:
+                t_cur = time.time() - t0
+                t_per_image = (time.time() - t0) / i
+                t_tot = t_per_image * len(arr)
+                if tlimit is not None and t_tot / 60.0 > tlimit:
+                    raise TooLongException(t_tot/60.0, tlimit)
+                print 'extraction: %i / %i  mins: %.2f / %.2f ' % (
+                        i , len(arr),
+                        t_cur / 60.0, t_tot / 60.0)
 
-            slms.append(slm)
-            feature_shp = (X.shape[0],) + t_slm.pythor_out_shape
-            feature_shps.append(feature_shp)
+    def compute_features(self, use_memmap=None):
+        if use_memmap is None:
+            size = np.prod(self.feature_shp) * 4
+            use_memmap = (size > 3e8)  # 300MB cutoff
 
-        super(TheanoExtractedFeatures, self).__init__(X, feature_shps, batchsize,
-                                                      slms, filenames, tlimit=tlimit,
-                                                      file_out = file_out)
+        if use_memmap:
+            return self.extract_to_memmap()
+        else:
+            print('Using memory for features of shape %s' % str(self.feature_shp))
+            arr = np.empty(self.feature_shp, dtype='float32')
+            self.extract_to_storage(arr)
+            return arr
 
+
+def slm_from_config(config, X_shape, batchsize, use_theano=True):
+    config = son_to_py(config)
+    desc = copy.deepcopy(config['desc'])
+    interpret_model(desc)
+
+    if use_theano:
+        if len(X_shape) == 3:
+            t_slm = TheanoSLM(
+                    in_shape=(batchsize,) + X_shape[1:] + (1,),
+                    description=desc)
+        elif len(X_shape) == 4:
+            t_slm = TheanoSLM(
+                    in_shape=(batchsize,) + X_shape[1:],
+                    description=desc)
+        else:
+            raise NotImplementedError()
+        slm = t_slm
+        # -- pre-compile the function to not mess up timing later
+        slm.get_theano_fn()
+    else:
+        cthor_sse = {'plugin':'cthor', 'plugin_kwargs':{'variant':'sse'}}
+        cthor = {'plugin':'cthor', 'plugin_kwargs':{}}
+        slm = SequentialLayeredModel(X_shape[1:], desc,
+                                     plugin='passthrough',
+                                     plugin_kwargs={'plugin_mapping': {
+                                         'fbcorr': cthor,
+                                          'lnorm' : cthor,
+                                          'lpool' : cthor,
+                                     }})
+    return slm
 
 
 class InvalidDescription(Exception):

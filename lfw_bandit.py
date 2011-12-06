@@ -25,6 +25,7 @@ from pythor3.operation import lnorm_
 
 import skdata.larray
 import skdata.utils
+import skdata.lfw
 import hyperopt.genson_bandits as gb
 from hyperopt.mongoexp import MongoJobs, MongoExperiment, as_mongo_str
 
@@ -33,8 +34,9 @@ from hyperopt.mongoexp import MongoJobs, MongoExperiment, as_mongo_str
 import hyperopt.theano_bandit_algos
 
 from utils import TooLongException
-from theano_slm import TheanoSLM, interpret_model
-from classifier import train_classifier, split_center_normalize
+from theano_slm import TheanoSLM, interpret_model, FeatureExtractor
+from classifier import train_classifier, split_center_normalize, mean_and_std
+from lfw import get_relevant_images
 
 
 try:
@@ -121,8 +123,7 @@ class Bandit1(gb.GensonBandit):
 
     @classmethod
     def evaluate(cls, config, ctrl, use_theano=True):
-        result = get_performance(None, son_to_py(config), use_theano)
-        return result
+        raise NotImplementedError()
 
 
 class ImgLoaderResizer(object):
@@ -158,134 +159,6 @@ class ImgLoaderResizer(object):
         return rval
 
 
-class FeatureExtractor(object):
-    def __init__(self, X, slm,
-            tlimit=float('inf'),
-            batchsize=4,
-            filename='FeatureExtractor.npy',
-            TEST=False):
-        """
-        X - 4-tensor of images
-        feature_shp - 4-tensor of output feature shape (len matches X)
-        batchsize - number of features to extract in parallel
-        slm - feature-extraction module (with .process_batch() fn)
-        filename - store features to memmap here
-
-        returns - read-only memmap of features
-        """
-        self.filename = filename
-        self.batchsize = batchsize
-        self.tlimit = tlimit
-        self.X = X
-        self.slm = slm
-        self.verbose = False
-        self.n_to_extract = len(X)
-        if TEST:
-            print('FeatureExtractor running in TESTING mode')
-            self.verbose = True
-            self.n_to_extract = 10 * batchsize
-        assert self.n_to_extract <= len(X)
-
-        # -- convenience
-        self.feature_shp = (self.n_to_extract,) + self.slm.pythor_out_shape
-
-    def __enter__(self):
-        raise NotImplementedError()
-        #return self.features
-
-    def __exit__(self, *args):
-        raise NotImplementedError()
-        for filename in self.filenames:
-            if filename:
-                os.remove(filename)
-
-    def extract_to_memmap(self):
-        """
-        Allocate a memmap, fill it with extracted features, return r/o view.
-        """
-        filename = self.filename
-        feature_shp = self.feature_shp
-        print('Creating memmap %s for features of shape %s' % (
-                                              filename,
-                                              str(feature_shp)))
-        features_fp = np.memmap(filename,
-            dtype='float32',
-            mode='w+',
-            shape=feature_shp)
-        info = open(filename+'.info', 'w')
-        cPickle.dump(('float32', feature_shp), info)
-        del info
-
-        self.extract_to_storage(features_fp)
-
-        # -- docs here:
-        #    http://docs.scipy.org/doc/numpy/reference/generated/numpy.memmap.html
-        #    say that deletion is the way to flush changes !?
-        del features_fp
-        rval = np.memmap(self.filename,
-            dtype='float32',
-            mode='r',
-            shape=feature_shp)
-        return rval
-
-    def extract_to_storage(self, arr):
-        """
-        Fill arr with the first len(arr) features of self.X.
-        """
-        assert len(arr) <= len(self.X)
-        batchsize = self.batchsize
-        tlimit = self.tlimit
-        print('Total size: %i bytes (%.2f GB)' % (
-            arr.size * arr.dtype.itemsize,
-            arr.size * arr.dtype.itemsize / float(1e9)))
-        i = 0
-        t0 = time.time()
-        while True:
-            if i + batchsize >= len(arr):
-                assert i < len(arr)
-                xi = np.asarray(self.X[-batchsize:])
-                done = True
-            else:
-                xi = np.asarray(self.X[i:i+batchsize])
-                done = False
-            t1 = time.time()
-            feature_batch = self.slm.process_batch(xi)
-            if self.verbose:
-                print('compute: ', time.time() - t1)
-            t2 = time.time()
-            delta = max(0, i + batchsize - len(arr))
-            assert np.all(np.isfinite(feature_batch))
-            arr[i:i + batchsize - delta] = feature_batch[delta:]
-            if self.verbose:
-                print('write: ', time.time() - t2)
-            if done:
-                break
-
-            i += batchsize
-            if (i // batchsize) % 50 == 0:
-                t_cur = time.time() - t0
-                t_per_image = (time.time() - t0) / i
-                t_tot = t_per_image * len(arr)
-                if tlimit is not None and t_tot / 60.0 > tlimit:
-                    raise TooLongException(t_tot/60.0, tlimit)
-                print 'extraction: %i / %i  mins: %.2f / %.2f ' % (
-                        i , len(arr),
-                        t_cur / 60.0, t_tot / 60.0)
-
-    def compute_features(self, use_memmap=None):
-        if use_memmap is None:
-            size = np.prod(self.feature_shp) * 4
-            use_memmap = (size > 3e8)  # 300MB cutoff
-
-        if use_memmap:
-            return self.extract_to_memmap()
-        else:
-            print('Using memory for features of shape %s' % str(self.feature_shp))
-            arr = np.empty(self.feature_shp, dtype='float32')
-            self.extract_to_storage(arr)
-            return arr
-
-
 class PairFeatures(object):
     def __init__(self, dataset, features, comparison, filename_prefix):
         self.dataset = dataset
@@ -313,27 +186,6 @@ class PairFeatures(object):
                 print('get_pair_fp  %i / %i' % (i, len(arr)))
         return arr
 
-    def view1_train_match_task(self):
-        """
-        Returns an image verification task
-        """
-        lpaths, rpaths, labels = self.dataset.raw_verification_task(
-                split='DevTrain')
-        arr = self.compute_pairs_features(lpaths, rpaths)
-        return arr, labels
-
-    def view1_test_match_task(self):
-        lpaths, rpaths, labels = self.dataset.raw_verification_task(
-                split='DevTest')
-        arr = self.compute_pairs_features(lpaths, rpaths)
-        return arr, labels
-
-    def view1_resplit(self, name):
-        lpaths, rpaths, labels = self.dataset.raw_verification_task_resplit(
-                split=name)
-        arr = self.compute_pairs_features(lpaths, rpaths)
-        return arr, labels
-
     def compute_pairs_features_fliplr(self, lpaths, rpaths, labels):
         arr_shape = (len(lpaths) * 4,
                 self.comparison.get_num_features(self.features.shape))
@@ -356,18 +208,23 @@ class PairFeatures(object):
                 print('get_pair_fp  %i / %i' % (ii * 4, len(arr)))
         return arr, arr_labels
 
-    def view1_train_match_task_fliplr(self):
-        """
-        Returns an image verification task
-        """
-        lpaths, rpaths, labels = self.dataset.raw_verification_task(
-                split='DevTrain')
-        return self.compute_pairs_features_fliplr(lpaths, rpaths, labels)
+    def get_paths(self, splits):
+        return map(np.concatenate,
+                zip(*[self.dataset.raw_verification_task(split=split)
+                    for split in splits]))
 
-    def view1_resplit_fliplr(self, name):
-        lpaths, rpaths, labels = self.dataset.raw_verification_task_resplit(
-                split=name)
-        return self.compute_pairs_features_fliplr(lpaths, rpaths, labels)
+    def match_task(self, splits, flip_lr=False):
+        if isinstance(splits, str):
+            splits = [splits]
+
+        lpaths, rpaths, labels = self.get_paths(splits)
+
+        if flip_lr:
+            return self.compute_pairs_features_fliplr(lpaths, rpaths, labels)
+        else:
+            arr = self.compute_pairs_features(lpaths, rpaths)
+            return arr, labels
+
 
 def main_result_from_trial():
     _, cmd, bandit_str, algo_str, trials_idx = sys.argv
@@ -456,7 +313,7 @@ def main_features_from_trial():
 
 
 def main_classify_features():
-    _, cmd, in_filename, comparison, flip_lr = sys.argv
+    _, cmd, in_filename, comparison, flip_lr, train_test, fold, outfile = sys.argv
 
     in_dtype, in_shape = cPickle.load(open(in_filename + '.info'))
     features = np.memmap(in_filename, dtype=in_dtype, mode='r', shape=in_shape)
@@ -469,13 +326,10 @@ def main_classify_features():
             comparison=getattr(comp_module, comparison),
             filename_prefix='pairs')
 
-    if 1:
+    if train_test == 'train':
         print "OPTIMIZING TEST SET PERFORMANCE OF OFFICIAL DEV SPLIT"
-        if flip_lr:
-            train_Xy = pf.view1_train_match_task_fliplr()
-        else:
-            train_Xy = pf.view1_train_match_task()
-        test_Xy = pf.view1_test_match_task()
+        train_Xy = pf.match_task('DevTrain', flip_lr=flip_lr)
+        test_Xy = pf.match_task('DevTest', flip_lr=False)
 
         train_X, train_y = train_Xy
         test_X, test_y = test_Xy
@@ -485,33 +339,359 @@ def main_classify_features():
         train_X = (train_X - m) / s
         test_X = (test_X - m) / s
 
-        model, earlystopper = train_classifier(
+        if 1:
+            np.random.RandomState(123).shuffle(train_X)
+            np.random.RandomState(123).shuffle(train_y)
+
+        model, earlystopper, data = train_classifier(
                 (train_X, train_y),
                 (test_X, test_y), verbose=True)
         print 'best y', earlystopper.best_y
         print 'best time', earlystopper.best_time
-    else:
-        print "OPTIMIZING TEST SET PERFORMANCE OF RESPLIT 0"
-        if flip_lr:
-            train_Xy = pf.view1_resplit_fliplr('train_0')
-        else:
-            train_Xy = pf.view1_resplit('train_0')
 
-        test_Xy = pf.view1_resplit('test_0')
-        train_X, train_y = train_Xy
-        test_X, test_y = test_Xy
-        m = np.mean(train_X, axis=0)
-        s = np.std(train_X, axis=0)
-        train_X = (train_X - m) / s
-        test_X = (test_X - m) / s
-        model, earlystopper = train_classifier(
-                (train_X, train_y),
-                (test_X, test_y),
-                verbose=True,
-                #step_sizes=[1e-6],
-                )
-        print 'best y', earlystopper.best_y
-        print 'best time', earlystopper.best_time
+    else:
+        assert train_test == 'test'
+        if fold is None:
+            folds = range(10)
+        else:
+            folds = [int(fold)]
+
+        results = {}
+        for i in folds:
+            print('evaluating fold %d ....' % i)
+            test_split = 'fold_' + str(i)
+            v_ind = (i + 1) % 10
+            validate_split = 'fold_' + str(v_ind)
+            inds = range(10)
+            inds.remove(i)
+            inds.remove(v_ind)
+            train_splits = ['fold_' + str(ind) for ind in inds]
+            train_Xy = pf.match_task(train_splits, flip_lr=flip_lr)
+            validate_Xy = pf.match_task(validate_split, flip_lr=False)
+            test_Xy = pf.match_task(test_split, flip_lr=False)
+
+            train_X, train_y = train_Xy
+            validate_X, validate_y = validate_Xy
+            test_X, test_y = test_Xy
+
+            m = np.mean(train_X, axis=0)
+            s = np.std(train_X, axis=0)
+            train_X = (train_X - m) / s
+            validate_X = (validate_X - m) / s
+            test_X = (test_X - m) / s
+
+            model, earlystopper, data = train_classifier((train_X, train_y),
+                                                   (validate_X, validate_y),
+                                                   verbose=True)
+            print 'best validation_y', earlystopper.best_y
+            print 'best validation time', earlystopper.best_time
+            result = evaluate_classifier(model, (test_X, test_y), verbose=True)
+            print 'best result', result['loss']
+            results['split_' + str(i)] = result
+
+        if outfile is not None:
+            import cPickle
+            fp = open(outfile,'w')
+            cPickle.dump(results, fp)
+            fp.close()
+
+
+def _main_featureextract_helper(config, filename, splits):
+    batchsize=4
+    dataset = skdata.lfw.Aligned()
+    Xr, yr = dataset.raw_classification_task()
+    X, y, Xpaths = get_relevant_images(dataset,
+            splits=splits,
+            dtype='float32')
+    print('extracting for config:')
+    print config
+    desc = config['desc']
+    interpret_model(desc)
+    if X.ndim == 3:
+        slm = TheanoSLM(
+                in_shape=(batchsize,) + X.shape[1:] + (1,),
+                description=desc)
+    elif X.ndim == 4:
+        slm = TheanoSLM(
+                in_shape=(batchsize,) + X.shape[1:],
+                description=desc)
+    else:
+        raise NotImplementedError()
+    slm.get_theano_fn()  # -- pre-compile the feature extractor
+
+    extractor = FeatureExtractor(X, slm,
+            filename=filename,
+            batchsize=batchsize,
+            TEST=False)
+    extractor.compute_features(use_memmap=True)
+
+
+def main_view2_features_from_seed():
+    _, cmd, filename, seed = sys.argv
+
+    config = Bandit1().template.sample(int(seed))
+    return _main_featureextract_helper(config)
+
+
+def main_view2_features_from_danpkl():
+    _, _cmd, rank, pklfile = sys.argv
+
+    obj = cPickle.load(open(pklfile))
+    configs = [o['spec'] for o in obj]
+    results = [o['result'] for o in obj]
+    losses = [r['loss'] for r in results]
+    # -- losses are sorted
+    return _main_featureextract_helper(configs[int(rank)],
+            'features_danpkl_%i.npy' % int(rank),
+            splits=['fold_%i' % ii for ii in xrange(10)])
+
+def main_view1_features_from_danpkl():
+    _, _cmd, rank, pklfile = sys.argv
+
+    obj = cPickle.load(open(pklfile))
+    configs = [o['spec'] for o in obj]
+    results = [o['result'] for o in obj]
+    losses = [r['loss'] for r in results]
+    # -- losses are sorted
+    return _main_featureextract_helper(configs[int(rank)],
+            'view1_features_danpkl_%i.npy' % int(rank),
+            splits=['DevTrain', 'DevTest'])
+
+
+def main_view1_classify():
+    # usage: comparisons outprefix trace_normalize in_filename0 in_filename1 ...
+    comparisons = [getattr(comp_module, comp)
+            for comp in sys.argv[2].split(',')]
+    out_prefix = sys.argv[3]
+    trace_normalize = int(sys.argv[4])
+    in_filenames = sys.argv[5:]
+
+    dataset = skdata.lfw.Aligned()
+
+    # n_out_features: after blending and whatnot, we'll have this many
+    # features per example for the classifier.
+    n_out_features = np.sum(
+            [comparison.get_num_features(
+                cPickle.load(open(filename + '.info'))[1])
+                for filename in in_filenames
+                for comparison in comparisons])
+    out_features_pos = 0
+
+    train_memmap = None
+    test_memmap = None
+    valid_memmap = None
+
+    # this script is going to create three memmaps: train_X, test_X, valid_X
+    # each memmap will use the first segments of columns for feature 1, the
+    # second segment for feature 2 and so on.
+
+    Xs = []
+    train_y, test_y, valid_y = None, None, None
+    for in_filename in in_filenames:
+        in_dtype, in_shape = cPickle.load(open(in_filename + '.info'))
+        features = np.memmap(in_filename, dtype=in_dtype, mode='r', shape=in_shape)
+        print('loaded features of shape %s' % str(features.shape))
+
+        for comparison in comparisons:
+            pf = PairFeatures(dataset, features,
+                    comparison=comparison,
+                    filename_prefix='pairs')
+            # -- override the default mapping because our feature file
+            #    generated by main_view2_classify only has rows from the test
+            #    folds
+            pf.idx_of_path = {}
+            __X, __y, Xpaths = get_relevant_images(dataset,
+                    splits=['DevTrain', 'DevTest'],
+                    dtype='float32',
+                    strip_path=False)
+            for ii, pth in enumerate(Xpaths):
+                pf.idx_of_path[str(pth)] = ii
+
+            train_Xy = pf.match_task(['DevTrain'])
+            test_Xy = pf.match_task(['DevTest'])
+
+            train_X, train_y_i = train_Xy
+            test_X, test_y_i = test_Xy
+
+            if train_y is None:
+                train_y = train_y_i
+                test_y = test_y_i
+            else:
+                assert np.all(train_y == train_y_i)
+                assert np.all(test_y == test_y_i)
+
+            train_mean, train_std = mean_and_std(train_X, min_std=1e-8)
+            # -- each X is an in-memory copy of elements from a read-only mem-map
+            for X in [train_X, test_X]:
+                X -= train_mean  # a row vector
+                X /= train_std   # a row vector
+            if trace_normalize:
+                print "SKIPPING TRACE NORMALIZATION"
+            else:
+                # -- "trace normalization" for blending features of different sizes
+                train_l2 = np.mean(np.sqrt((train_X ** 2).sum(axis=1)))
+                for X in [train_X, test_X]:
+                    X /= train_l2
+
+            # -- do not shuffle the training set for better SGD
+            #    because it is in a memmap, too slow, not worth it
+
+            # -- write train_X, test_X to a swath of the memmap
+            if train_memmap is None:
+                # now we know how big to make these files
+                train_memmap = np.memmap(out_prefix + '.train',
+                    dtype='float32',
+                    mode='w+',
+                    shape=(len(train_X), n_out_features))
+
+                test_memmap = np.memmap(out_prefix + '.test',
+                    dtype='float32',
+                    mode='w+',
+                    shape=(len(test_X), n_out_features))
+
+            L = out_features_pos
+            train_memmap[:, L:L + train_X.shape[1]] = train_X
+            test_memmap [:, L:L + test_X.shape[1]] = test_X
+            out_features_pos += train_X.shape[1]
+
+    assert out_features_pos == train_memmap.shape[1]
+
+    model, earlystopper, data = train_classifier(
+            (train_memmap, train_y),
+            (test_memmap, test_y),
+            verbose=True,
+            step_sizes=(1e-1, 3e-2, 1e-2, 3e-3, 1e-3),
+            )
+    print 'best y', earlystopper.best_y
+    print 'best time', earlystopper.best_time
+
+def main_view2_classify():
+    # usage: comparison split outprefix trace_normalize in_filename0 in_filename1 ...
+    comparisons = [getattr(comp_module, comp)
+            for comp in sys.argv[2].split(',')]
+    view2_split = int(sys.argv[3])
+    out_prefix = sys.argv[4]
+    trace_normalize = int(sys.argv[5])
+    in_filenames = sys.argv[6:]
+
+    dataset = skdata.lfw.Aligned()
+
+    # n_out_features: after blending and whatnot, we'll have this many
+    # features per example for the classifier.
+    n_out_features = np.sum(
+            [comparison.get_num_features(
+                cPickle.load(open(filename + '.info'))[1])
+                for filename in in_filenames
+                for comparison in comparisons])
+    out_features_pos = 0
+
+    train_memmap = None
+    test_memmap = None
+    valid_memmap = None
+
+    # this script is going to create three memmaps: train_X, test_X, valid_X
+    # each memmap will use the first segments of columns for feature 1, the
+    # second segment for feature 2 and so on.
+
+    Xs = []
+    train_y, test_y, valid_y = None, None, None
+    for in_filename in in_filenames:
+        in_dtype, in_shape = cPickle.load(open(in_filename + '.info'))
+        features = np.memmap(in_filename, dtype=in_dtype, mode='r', shape=in_shape)
+        print('loaded features of shape %s' % str(features.shape))
+
+        for comparison in comparisons:
+            pf = PairFeatures(dataset, features,
+                    comparison=comparison,
+                    filename_prefix='pairs')
+            # -- override the default mapping because our feature file
+            #    generated by main_view2_classify only has rows from the test
+            #    folds
+            pf.idx_of_path = {}
+            __X, __y, Xpaths = get_relevant_images(dataset,
+                    splits=['fold_%i' % ii for ii in xrange(10)],
+                    dtype='float32',
+                    strip_path=False)
+            for ii, pth in enumerate(Xpaths):
+                pf.idx_of_path[str(pth)] = ii
+
+            train_splits = range(10)
+            train_splits.remove(view2_split)
+            train_splits.remove((view2_split + 1) % 10)
+
+            train_Xy = pf.match_task( ['fold_%i' % ii for ii in train_splits])
+            valid_Xy = pf.match_task('fold_%i' % ((view2_split + 1) % 10))
+            test_Xy = pf.match_task('fold_%i' % view2_split)
+
+            train_X, train_y_i = train_Xy
+            test_X, test_y_i = test_Xy
+            valid_X, valid_y_i = valid_Xy
+
+            if train_y is None:
+                train_y = train_y_i
+                test_y = test_y_i
+                valid_y = valid_y_i
+            else:
+                assert np.all(train_y == train_y_i)
+                assert np.all(test_y == test_y_i)
+                assert np.all(valid_y == valid_y_i)
+
+            train_mean, train_std = mean_and_std(train_X, min_std=1e-8)
+            # -- each X is an in-memory copy of elements from a read-only mem-map
+            for X in [train_X, test_X, valid_X]:
+                X -= train_mean  # a row vector
+                X /= train_std   # a row vector
+            # -- "trace normalization" for blending features of different sizes
+            if trace_normalize:
+                train_l2 = np.mean(np.sqrt((train_X ** 2).sum(axis=1)))
+                for X in [train_X, test_X, valid_X]:
+                    X /= train_l2
+
+            # -- do not shuffle the training set for better SGD
+            #    because it is in a memmap, too slow, not worth it
+
+            # -- write train_X, test_X, valid_X to a swath of the memmap
+            if train_memmap is None:
+                # now we know how big to make these files
+                train_memmap = np.memmap(out_prefix + '.train',
+                    dtype='float32',
+                    mode='w+',
+                    shape=(len(train_X), n_out_features))
+
+                test_memmap = np.memmap(out_prefix + '.test',
+                    dtype='float32',
+                    mode='w+',
+                    shape=(len(test_X), n_out_features))
+
+                valid_memmap = np.memmap(out_prefix + '.valid',
+                    dtype='float32',
+                    mode='w+',
+                    shape=(len(valid_X), n_out_features))
+
+            L = out_features_pos
+            train_memmap[:, L:L + train_X.shape[1]] = train_X
+            valid_memmap[:, L:L + valid_X.shape[1]] = valid_X
+            test_memmap [:, L:L + test_X.shape[1]] = test_X
+            out_features_pos += train_X.shape[1]
+
+    assert out_features_pos == train_memmap.shape[1]
+
+    model, earlystopper, data = train_classifier(
+            (train_memmap, train_y),
+            (valid_memmap, valid_y),
+            verbose=True,
+            step_sizes=(1e-1, 3e-2, 1e-2, 3e-3, 1e-3))
+    print 'best y', earlystopper.best_y
+    print 'best time', earlystopper.best_time
+
+    pred_y = model.predict(test_memmap)
+    if pred_y.min() < 0:
+        pred_y = (pred_y + 1) / 2
+    if test_y.min() < 0:
+        test_y = (test_y + 1) / 2
+    assert set(pred_y) == set(test_y)  # catch a 0/1 vs -1/+1 error
+    test_err = (pred_y != test_y).astype('float').mean()
+    print 'test error', test_err
 
 
 def main_splits_overlap():
@@ -537,130 +717,3 @@ if __name__ == '__main__':
     cmd = sys.argv[1]
     main = globals()['main_' + cmd]
     sys.exit(main())
-
-
-if 0:
-
-    def get_performance(outfile, config, use_theano=True):
-        import skdata.lfw
-
-        c_hash = get_config_string(config)
-
-        comparisons = config['comparisons']
-
-        assert all([hasattr(comp_module, comparison)
-            for comparison in comparisons])
-
-        dataset = skdata.lfw.Aligned()
-
-        X, y, Xr = get_relevant_images(dataset, dtype='float32')
-
-        assert len(X) == len(dataset.meta)
-
-        batchsize = 4
-
-        desc = copy.deepcopy(config['desc'])
-        interpret_model(desc)
-        if X.ndim == 3:
-            theano_slm = TheanoSLM(
-                    in_shape=(batchsize,) + X.shape[1:] + (1,),
-                    description=desc)
-        elif X.ndim == 4:
-            theano_slm = TheanoSLM(
-                    in_shape=(batchsize,) + X.shape[1:],
-                    description=desc)
-        else:
-            raise NotImplementedError()
-
-        if use_theano:
-            slm = theano_slm
-            # -- pre-compile function to not mess up timing
-            slm.get_theano_fn()
-        else:
-            cthor_sse = {'plugin':'cthor', 'plugin_kwargs':{'variant':'sse'}}
-            cthor = {'plugin':'cthor', 'plugin_kwargs':{}}
-            slm = SequentialLayeredModel(X.shape[1:], desc,
-                                         plugin='passthrough',
-                                         plugin_kwargs={'plugin_mapping': {
-                                             'fbcorr': cthor,
-                                              'lnorm' : cthor,
-                                              'lpool' : cthor,
-                                         }})
-
-        feature_shp = (X.shape[0],) + theano_slm.pythor_out_shape
-
-        num_splits = 1
-        performance_comp = {}
-        feature_file_name = 'features_' + c_hash + '.dat'
-        train_pairs_filename = 'train_pairs_' + c_hash + '.dat'
-        test_pairs_filename = 'test_pairs_' + c_hash + '.dat'
-        with FeatureExtractor(X, feature_shp, batchsize, slm,
-                feature_file_name) as features_mmap:
-            assert len(features_mmap) == len(X)
-            for comparison in comparisons:
-                print('Doing comparison %s' % comparison)
-                perf = []
-                comparison_obj = getattr(comp_module,comparison)
-                n_features = comparison_obj.get_num_features(feature_shp)
-                for split_id in range(num_splits):
-                    with PairFeatures(
-                            dataset,
-                            'train_' + str(split_id),
-                            Xr,
-                            n_features,
-                            features_mmap,
-                            comparison_obj,
-                            train_pairs_filename) as train_Xy:
-                        with PairFeatures(
-                                dataset,
-                                'test_' + str(split_id),
-                                Xr,
-                                n_features,
-                                features_mmap,
-                                comparison_obj,
-                                test_pairs_filename) as test_Xy:
-                            #
-                            perf.append(train_classifier(config,
-                                        train_Xy, test_Xy, n_features))
-                            n_test_examples = len(test_Xy[0])
-                performance_comp[comparison] = float(np.array(perf).mean())
-
-        performance = float(np.array(performance_comp.values()).min())
-        result = dict(
-                loss=performance,
-                loss_variance=performance * (1 - performance) / n_test_examples,
-                performances=performance_comp,
-                status='ok')
-
-        if outfile is not None:
-            outfh = open(outfile,'w')
-            cPickle.dump(result, outfh)
-            outfh.close()
-        return result
-
-
-    def get_relevant_images(dataset, dtype):
-        """Create a lazy-array of images that matches dataset.meta
-
-        Returns lazyarray of images, array of ints for names, array of img
-        filenames
-        """
-        # load & resize logic is LFW Aligned -specific
-        assert 'Aligned' in str(dataset.__class__)
-
-        Xr, yr = dataset.raw_classification_task()
-        Xr = np.array(Xr)
-        # Xr is image filenames
-        # yr is ints corresponding to names
-
-        X = skdata.larray.lmap(
-                    ImgLoaderResizer(
-                        shape=(200, 200),  # lfw-specific
-                        dtype=dtype),
-                    Xr)
-
-        Xr = np.array([os.path.split(x)[-1] for x in Xr])
-
-        return X, yr, Xr
-
-
