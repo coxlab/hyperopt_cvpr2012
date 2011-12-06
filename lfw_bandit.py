@@ -12,17 +12,6 @@ import Image
 import numpy as np
 from bson import BSON, SON
 
-import theano
-import theano.tensor as tensor
-from theano.tensor.nnet import conv
-from theano.tensor.signal import downsample
-from pythor3.model.slm.plugins.passthrough.passthrough import (
-        SequentialLayeredModelPassthrough,
-        )
-from pythor3.model import SequentialLayeredModel
-from pythor3.operation import fbcorr_
-from pythor3.operation import lnorm_
-
 import skdata.larray
 import skdata.utils
 import skdata.lfw

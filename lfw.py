@@ -12,12 +12,6 @@ import hashlib
 import Image
 import numpy as np
 
-import theano
-import theano.tensor as tensor
-from theano.tensor.nnet import conv
-from theano.tensor.signal import downsample
-from pythor3.model import SequentialLayeredModel
-
 import skdata.larray
 import skdata.utils
 import hyperopt.genson_bandits as gb
