@@ -566,6 +566,24 @@ layers_uni = [[('lnorm', lnorm)],
            ('lpool', lpool),
            ('lnorm', lnorm)]
          ]
-
 uni_params = {'desc' : layers_uni}
 
+#######
+
+filter1_gabor = copy.deepcopy(filter1)
+filter1_gabor['initialize']['generate'] = ('random:gabor',
+                                          {'min_wl': 2, 'max_wl': 20 ,
+                                           'rseed': choice([11, 12, 13, 14, 15])})
+
+layers_gabor = [[('lnorm', lnorm)],
+          [('fbcorr', filter1_gabor),
+           ('lpool', lpool),
+           ('lnorm', lnorm)],
+          [('fbcorr', filter2),
+           ('lpool' , lpool),
+           ('lnorm' , lnorm)],
+          [('fbcorr', filter3),
+           ('lpool', lpool),
+           ('lnorm', lnorm)]
+         ]
+gabor_params = {'desc' : layers_gabor}

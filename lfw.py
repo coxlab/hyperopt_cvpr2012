@@ -56,6 +56,10 @@ class LFWBanditUnidirectional(LFWBandit):
     source_string = cvpr_params.string(cvpr_params.uni_params)
 
 
+class LFWBanditGabor(LFWBandit):
+    source_string = cvpr_params.string(cvpr_params.gabor_params)
+
+
 class LFWBanditHetero(LFWBandit):
     source_string = cvpr_params.string(cvpr_params.config_h)
 
