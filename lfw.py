@@ -44,6 +44,10 @@ class LFWBandit(gb.GensonBandit):
         return result
 
 
+class LFWBanditSimpleArch(LFWBandit):
+    source_string = cvpr_params.string(cvpr_params.simple_params)
+
+
 class LFWBanditHetero(LFWBandit):
     source_string = cvpr_params.string(cvpr_params.config_h)
 
@@ -111,7 +115,7 @@ def do_mod_details(params,mod_params):
 
 
 def do_mods(spec, mods):
-    """used to implement modifications from a "default base config" for the 
+    """used to implement modifications from a "default base config" for the
     LFWBanditTopHetero bandit
     """
     for spec_l, mod_l in zip(spec, mods):
@@ -124,7 +128,7 @@ def do_mods(spec, mods):
 
 import pymongo
 class LFWBanditTopHetero(LFWBandit):
-    """bandit which looks up top bandits from a given run in the db and then runs 
+    """bandit which looks up top bandits from a given run in the db and then runs
     heterogenous parameters around those top configs
     """
     source_string = cvpr_params.string(cvpr_params.config_mod)
@@ -310,7 +314,7 @@ def test_splits():
 
 
 def get_test_performance(outfile, config, use_theano=True, flip_lr=False, comparisons=DEFAULT_COMPARISONS):
-    """adapter to construct split notation for 10-fold split and call 
+    """adapter to construct split notation for 10-fold split and call
     get_performance on it (e.g. this is like "test a config on View 2")
     """
     splits = test_splits()
@@ -322,12 +326,12 @@ def get_test_performance(outfile, config, use_theano=True, flip_lr=False, compar
 def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
                     flip_lr=False, tlimit=35, comparisons=DEFAULT_COMPARISONS):
     """Given a config and list of splits, test config on those splits.
-    
+
     Splits can either be "view1-like", e.g. train then test or "view2-like", e.g.
-    train/validate and then test.  splits specified by a list of dictionaries 
+    train/validate and then test.  splits specified by a list of dictionaries
     with keys in ["train","validate","test"] and values are split names recognized
     by skdata.lfw.Aligned.raw_verification_task
-    
+
     This function both extracts features AND runs SVM evaluation. See functions
     "get_features" and "train_feature"  below that split these two things up.
     At some point this function should be simplified by calls to those two.
@@ -422,11 +426,11 @@ def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
 
 
 def get_features(outfiles, configs, train_test_splits):
-    """just extraction features.   
-    
+    """just extraction features.
+
     inputs are list of configs and a list of filenames
-    to extract to.  
-    
+    to extract to.
+
     returns filehandles and names of all images extracted
     """
     arrays, labels, im_names = get_relevant_data(train_test_splits)
@@ -451,7 +455,7 @@ def train_features(infiles, inshapes, im_names, train_test_splits,
                    trace_normalize=True):
 
     """just train.  From features in "infiles" input.  Also needs list of all
-       image names, inshapes, and train_test_splits.   This is annoying and 
+       image names, inshapes, and train_test_splits.   This is annoying and
        should perhaps be removed.
        Parallelizes on splits using joblib  (specify number of jobs via n_jobs)
     """
@@ -540,9 +544,9 @@ def train_features_single(infiles, inshapes, im_names, tts, comparison, flip_lr=
 
 
 def normalize(feats_Xy, trace_normalize=True):
-    """Performs normalizations before training on a list of feature array/label 
+    """Performs normalizations before training on a list of feature array/label
     pairs. first feature array in list is taken by default to be training set
-    and norms are computed relative to that one. 
+    and norms are computed relative to that one.
     """
     feats, labels = zip(*feats_Xy)
     train_f = feats[0]

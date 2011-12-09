@@ -494,4 +494,43 @@ config_mod = {'top_model': choice(range(10)),
     }
 
 
+##################simple architecture
+
+rescale = {'kwargs': {'stride' : 2}}
+
+filter1_simple = dict(
+        initialize=dict(
+            filter_shape=choice([(3,3),(5,5),(7,7),(9,9)]),
+            n_filters=choice([16,32,64]),
+            generate1=(
+                'random:uniform',
+                {'rseed': choice([11, 12, 13, 14, 15])}),
+            generate2=(
+                'random:uniform',
+                {'rseed': choice([0, 1, 2, 3, 4])}),
+            exp1=choice([1, 2, 4, 10]),
+            exp2=choice([1, 2, 4, 10]),
+                ),
+         kwargs=activ)
+
+filter2_simple = copy.deepcopy(filter1_simple)
+filter2_simple['initialize']['n_filters'] = choice([16,32,64,128])
+
+filter3_simple = copy.deepcopy(filter1_simple)
+filter3_simple['initialize']['n_filters'] = choice([16,32,64,128,256])
+
+simple_layers = [[('lnorm', lnorm)],
+          [('fbcorr2', filter1_simple),
+           ('rescale', rescale)],
+          [('fbcorr2', filter2_simple),
+           ('rescale', rescale)],
+          [('fbcorr2', filter3_simple),
+           ('rescale', rescale)],
+         ]
+
+simple_params = {'desc' : simple_layers}
+
+
+
+
 
