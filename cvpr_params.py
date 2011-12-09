@@ -546,4 +546,26 @@ simple_layers2 = [[('lnorm', lnorm)],
 
 simple_params2 = {'desc' : simple_layers2}
 
+filter1_uni = copy.deepcopy(filter1)
+filter1_uni['initialize']['generate'] = ('unidirectional',{'normalize':false})
+
+filter2_uni = copy.deepcopy(filter2)
+filter2_uni['initialize']['generate'] = ('unidirectional',{'normalize':false})
+
+filter3_uni = copy.deepcopy(filter3)
+filter3_uni['initialize']['generate'] = ('unidirectional',{'normalize':false})
+
+layers_uni = [[('lnorm', lnorm)],
+          [('fbcorr', filter1_uni),
+           ('lpool', lpool),
+           ('lnorm', lnorm)],
+          [('fbcorr', filter2_uni),
+           ('lpool' , lpool),
+           ('lnorm' , lnorm)],
+          [('fbcorr', filter3_uni),
+           ('lpool', lpool),
+           ('lnorm', lnorm)]
+         ]
+
+uni_params = {'desc' : layers_uni}
 
