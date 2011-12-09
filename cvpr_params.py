@@ -530,7 +530,20 @@ simple_layers = [[('lnorm', lnorm)],
 
 simple_params = {'desc' : simple_layers}
 
+lpool1 = {'kwargs': {'stride' : 2,
+          'ker_shape' : (1,1),
+          'order' : 1
+         }}
 
+simple_layers2 = [[('lnorm', lnorm)],
+          [('fbcorr', filter1),
+           ('lpool', lpool1)],
+          [('fbcorr', filter2),
+           ('lpool' , lpool1)],
+          [('fbcorr', filter3),
+           ('lpool', lpool1)]
+         ]
 
+simple_params2 = {'desc' : simple_layers2}
 
 
