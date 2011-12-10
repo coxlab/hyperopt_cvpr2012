@@ -546,6 +546,23 @@ simple_layers2 = [[('lnorm', lnorm)],
 
 simple_params2 = {'desc' : simple_layers2}
 
+lpool_simple_2 = {'kwargs': {'stride' : 2,
+          'ker_shape' : (3,3),
+          'order' : 2
+         }}
+
+simple_layers3 = [[('lnorm', lnorm)],
+          [('fbcorr', filter1),
+           ('lpool', lpool_simple_2)],
+          [('fbcorr', filter2),
+           ('lpool' , lpool_simple_2)],
+          [('fbcorr', filter3),
+           ('lpool', lpool_simple_2)]
+         ]
+
+simple_params3 = {'desc' : simple_layers3}
+
+
 filter1_uni = copy.deepcopy(filter1)
 filter1_uni['initialize']['generate'] = ('unidirectional',{'normalize':false})
 

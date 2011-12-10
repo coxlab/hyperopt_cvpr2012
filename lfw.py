@@ -52,6 +52,10 @@ class LFWBanditSimpleArch2(LFWBandit):
     source_string = cvpr_params.string(cvpr_params.simple_params2)
 
 
+class LFWBanditSimpleArch3(LFWBandit):
+    source_string = cvpr_params.string(cvpr_params.simple_params3)
+
+
 class LFWBanditUnidirectional(LFWBandit):
     source_string = cvpr_params.string(cvpr_params.uni_params)
 
