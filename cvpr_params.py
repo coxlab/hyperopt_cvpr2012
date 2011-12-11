@@ -559,9 +559,30 @@ simple_layers3 = [[('lnorm', lnorm)],
           [('fbcorr', filter3),
            ('lpool', lpool_simple_2)]
          ]
-
+         
 simple_params3 = {'desc' : simple_layers3}
 
+simple_params3_reorder = {'desc':
+          [[('lnorm', lnorm)],
+          [('lpool', lpool_simple_2),
+           ('fbcorr', filter1)],
+          [('lpool' , lpool_simple_2),
+           ('fbcorr', filter2)],
+          [('lpool', lpool_simple_2),
+           ('fbcorr', filter3)]
+          ]}
+         
+
+simple_params_4 = {'desc':
+          [[('lnorm', lnorm)],
+          [('fbcorr', filter1),
+           ('lpool', lpool)],
+          [('fbcorr', filter2),
+           ('lpool' , lpool)],
+          [('fbcorr', filter3),
+           ('lpool', lpool)]
+         ]}
+         
 
 filter1_uni = copy.deepcopy(filter1)
 filter1_uni['initialize']['generate'] = ('unidirectional',{'normalize':false})
