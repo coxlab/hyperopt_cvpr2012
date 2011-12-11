@@ -583,6 +583,52 @@ simple_params4 = {'desc':
            ('lpool', lpool)]
          ]}
          
+         
+lpool_s1 = {'kwargs': {'stride' : 1,
+          'ker_shape' : choice([(3,3),(5,5),(7,7),(9,9)]),
+          'order' : choice([1,2,10])
+         }}
+
+lpool_s2 = {'kwargs': {'stride' : 2,
+          'ker_shape' : (1,1)
+          'order' : 1
+         }}
+         
+params_reorder = {'desc':
+          [[('lnorm', lnorm),
+           ('lpool', lpool_s1),
+           ('fbcorr', filter1),
+           ('lpool', lpool_s2),
+           ],
+          [('lnorm', lnorm),
+           ('lpool', lpool_s1),
+           ('fbcorr', filter2),
+           ('lpool', lpool_s2),
+           ],
+          [('lnorm', lnorm),
+           ('lpool', lpool_s1),
+           ('fbcorr', filter3),
+           ('lpool', lpool_s2),
+           ]] 
+         }
+
+params_reorder2 = {'desc':
+          [[('lpool', lpool_s1),
+           ('lnorm', lnorm),
+           ('fbcorr', filter1),
+           ('lpool', lpool_s2),
+           ],
+          [('lpool', lpool_s1),
+           ('lnorm', lnorm),
+           ('fbcorr', filter2),
+           ('lpool', lpool_s2),
+           ],
+          [('lpool', lpool_s1),
+           ('lnorm', lnorm),
+           ('fbcorr', filter3),
+           ('lpool', lpool_s2),
+           ]] 
+         }
 
 filter1_uni = copy.deepcopy(filter1)
 filter1_uni['initialize']['generate'] = ('unidirectional',{'normalize':false})
