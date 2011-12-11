@@ -590,7 +590,7 @@ lpool_s1 = {'kwargs': {'stride' : 1,
          }}
 
 lpool_s2 = {'kwargs': {'stride' : 2,
-          'ker_shape' : (1,1)
+          'ker_shape' : (1,1),
           'order' : 1
          }}
          
