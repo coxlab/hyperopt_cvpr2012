@@ -573,7 +573,7 @@ simple_params3_reorder = {'desc':
           ]}
          
 
-simple_params_4 = {'desc':
+simple_params4 = {'desc':
           [[('lnorm', lnorm)],
           [('fbcorr', filter1),
            ('lpool', lpool)],
