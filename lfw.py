@@ -52,6 +52,15 @@ class LFWBanditReorder2(LFWBandit):
     source_string = cvpr_params.string(cvpr_params.params_reorder2)
 
 
+
+class LFWBanditReorderExtraPool(LFWBandit):
+    source_string = cvpr_params.string(cvpr_params.params_extra_pool)
+
+
+class LFWBanditReorderExtraPoolReorder(LFWBandit):
+    source_string = cvpr_params.string(cvpr_params.params_extra_pool_reorder)
+
+
 class LFWBanditSimpleArch(LFWBandit):
     source_string = cvpr_params.string(cvpr_params.simple_params)
 

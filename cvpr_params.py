@@ -671,3 +671,33 @@ layers_gabor = [[('lnorm', lnorm)],
            ('lnorm', lnorm)]
          ]
 gabor_params = {'desc' : layers_gabor}
+
+params_extra_pool = {'desc':[[('lpool', lpool),
+           ('lnorm', lnorm)],
+          [('fbcorr', filter1),
+           ('lpool', lpool),
+           ('lnorm', lnorm)],
+          [('fbcorr', filter2),
+           ('lpool' , lpool),
+           ('lnorm' , lnorm)],
+          [('fbcorr', filter3),
+           ('lpool', lpool),
+           ('lnorm', lnorm)]
+         ]}
+
+params_extra_pool_reorder = {'desc':[[
+           ('lnorm', lnorm),
+           ('lpool', lpool),],
+          [('fbcorr', filter1),
+           ('lnorm', lnorm),
+           ('lpool', lpool),
+           ],
+          [('fbcorr', filter2),
+           ('lnorm' , lnorm)
+           ('lpool' , lpool),
+           ],
+          [('fbcorr', filter3),
+           ('lnorm', lnorm)
+           ('lpool', lpool),
+           ]
+         ]}
