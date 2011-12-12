@@ -44,11 +44,11 @@ class LFWBandit(gb.GensonBandit):
         return result
 
 
-class LFWBanditSimpleReorder(LFWBandit):
+class LFWBanditReorder(LFWBandit):
     source_string = cvpr_params.string(cvpr_params.params_reorder)
 
 
-class LFWBanditSimpleReorder2(LFWBandit):
+class LFWBanditReorder2(LFWBandit):
     source_string = cvpr_params.string(cvpr_params.params_reorder2)
 
 
