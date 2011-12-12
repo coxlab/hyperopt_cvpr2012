@@ -693,11 +693,11 @@ params_extra_pool_reorder = {'desc':[[
            ('lpool', lpool),
            ],
           [('fbcorr', filter2),
-           ('lnorm' , lnorm)
+           ('lnorm' , lnorm),
            ('lpool' , lpool),
            ],
           [('fbcorr', filter3),
-           ('lnorm', lnorm)
+           ('lnorm', lnorm),
            ('lpool', lpool),
            ]
          ]}
