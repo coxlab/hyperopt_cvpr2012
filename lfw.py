@@ -78,7 +78,7 @@ class LFWBanditSimpleArch3_reorder(LFWBandit):
 
 class LFWBanditSimpleArch4(LFWBandit):
     source_string = cvpr_params.string(cvpr_params.simple_params4)
-    
+
 
 class LFWBanditUnidirectional(LFWBandit):
     source_string = cvpr_params.string(cvpr_params.uni_params)
@@ -407,6 +407,7 @@ def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
             comparison_obj = getattr(comp_module,comparison)
             #how does tricks interact with n_features, if at all?
             n_features = sum([comparison_obj.get_num_features(f_shp) for f_shp in feature_shps])
+            f_info = {'feature_shapes': feature_shps, 'n_features': n_features}
             for tts in train_test_splits:
                 print('Split', tts)
                 if tts.get('validate') is not None:
@@ -430,6 +431,7 @@ def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
                                 print ('Split',tts, 'comparison', comparison, 'loss is', result['loss'])
                                 n_test_examples = len(test_Xy[0])
                                 result['split'] = tts
+                                result.update(f_info)
                                 datas[comparison].append(result)
 
                 else:
@@ -446,6 +448,7 @@ def get_performance(outfile, configs, train_test_splits=None, use_theano=True,
                             perf.append(data['loss'])
                             n_test_examples = len(test_Xy[0])
                             data['split'] = tts
+                            data.update(f_info)
                             datas[comparison].append(data)
 
             performance_comp[comparison] = float(np.array(perf).mean())

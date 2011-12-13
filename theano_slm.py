@@ -316,7 +316,6 @@ def slm_from_config(config, X_shape, batchsize, use_theano=True):
     config = son_to_py(config)
     desc = copy.deepcopy(config['desc'])
     interpret_model(desc)
-
     if use_theano:
         if len(X_shape) == 3:
             t_slm = TheanoSLM(
@@ -351,19 +350,8 @@ class TooLongException(Exception):
         return 'Would take too long to execute model (%f mins, but cutoff is %s mins)' % (tot, cutoff)
 
 
-def get_pythor_safe_description(description):
-    description = copy.deepcopy(description)
-    for layer_idx, layer_desc in enumerate(description):
-        for (op_idx,(op_name, op_params)) in enumerate(layer_desc):
-            if op_name.endswith('_h'):
-                newname = op_name[:-2]
-                layer_desc[op_idx] = (newname,op_params)
-    return description
-
-
-
 def interpret_model(desc):
     for layer in desc:
         for (ind,(opname,opparams)) in enumerate(layer):
-            if opname.endswith('_h'):
-                raise NotImplementedError('Heterogeneous ops not implemented in this branch')
+            if opname not in ['fbcorr', 'lpool', 'lnorm', 'rescale', 'activ']:
+                raise NotImplementedError('Op %s not implemented in this branch' % opname)
